@@ -80,7 +80,7 @@ export class GameEngine {
     // 2-4P LAN / Online Multiplayer Subsystem (Additive)
     this.networkMode = false;
     this.remoteInputs = Array.from({ length: 4 }, () => ({
-      throttle: 0, turn: 0, fire: false, action: false,
+      throttle: 0, turn: 0, fire: false, action: false, directDrive: false,
     }));
     this._pendingCellDeltas = [];
     this._pendingNetEvents = [];
@@ -106,7 +106,7 @@ export class GameEngine {
       },
       onPeerDisconnected: (slot) => {
         if (typeof slot === 'number' && this.remoteInputs[slot]) {
-          this.remoteInputs[slot] = { throttle: 0, turn: 0, fire: false, action: false };
+          this.remoteInputs[slot] = { throttle: 0, turn: 0, fire: false, action: false, directDrive: false };
         }
         if (this.network.isGuest() && this.state !== 'MENU') {
           this.openMenu();
@@ -859,7 +859,7 @@ export class GameEngine {
     if (this.network.isHost() && p.index > 0) {
       const ri = this.remoteInputs[p.index];
       cmd = ri
-        ? { throttle: ri.throttle, turn: ri.turn, fire: ri.fire, action: ri.action }
+        ? { throttle: ri.throttle, turn: ri.turn, fire: ri.fire, action: ri.action, directDrive: ri.directDrive }
         : { throttle: 0, turn: 0, fire: false, action: false };
       if (ri) ri.action = false;
     } else if (p.isAIControlled) {
@@ -1030,6 +1030,7 @@ export class GameEngine {
         ri.throttle = Number(msg.cmd.throttle) || 0;
         ri.turn = Number(msg.cmd.turn) || 0;
         ri.fire = Boolean(msg.cmd.fire);
+        ri.directDrive = Boolean(msg.cmd.directDrive);
         if (msg.cmd.action) ri.action = true;
       } else if (msg.type === 'guest_nation' && msg.nation && slot >= 1 && slot < 4) {
         this.playerNations[slot] = msg.nation;
@@ -1548,7 +1549,7 @@ export class GameEngine {
       if (cmd.action) this._guestActionLatch = true;
 
       this._netSendAccum += dt;
-      const sig = `${cmd.throttle.toFixed(2)}:${cmd.turn.toFixed(2)}:${cmd.fire ? 1 : 0}:${this._guestActionLatch ? 1 : 0}`;
+      const sig = `${cmd.throttle.toFixed(2)}:${cmd.turn.toFixed(2)}:${cmd.fire ? 1 : 0}:${this._guestActionLatch ? 1 : 0}:${cmd.directDrive ? 1 : 0}`;
       if (sig !== this._guestLastInputSig || this._netSendAccum >= 1 / 30) {
         this._netSendAccum = 0;
         this._guestLastInputSig = sig;
@@ -1559,6 +1560,7 @@ export class GameEngine {
             turn: cmd.turn,
             fire: cmd.fire,
             action: this._guestActionLatch,
+            directDrive: cmd.directDrive,
           },
         });
         this._guestActionLatch = false;

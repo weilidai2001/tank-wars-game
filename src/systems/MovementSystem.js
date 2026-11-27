@@ -9,6 +9,21 @@ const ICE_SLIP_DURATION = 0.38; // Matches Tanks3D kIceSlipDuration
 const REVERSE_STEER_BLEND = 2.0;
 
 /**
+ * Direct drive (touch joystick): the throttle is the share of top speed to hold, so a light push
+ * creeps and the tank settles at that speed instead of running on up to full speed.
+ */
+function driveTowardSpeed(tank, throttle, maxFwd, maxRev, accel, decel, dt) {
+  const target = throttle >= 0 ? throttle * maxFwd : throttle * maxRev;
+  const speed = tank.speed;
+  let rate = decel;
+  if (target * speed < 0) rate = Math.max(decel, accel * Math.abs(throttle));
+  else if (Math.abs(target) > Math.abs(speed)) rate = accel;
+  tank.speed = speed < target
+    ? Math.min(target, speed + rate * dt)
+    : Math.max(target, speed - rate * dt);
+}
+
+/**
  * Pure simulation MovementSystem (Single Responsibility Principle).
  * Computes vehicle propulsion, reverse-steering inversion, terrain traction
  * (asphalt / ice momentum carry / forest drag), damped spring suspension
@@ -40,9 +55,11 @@ export class MovementSystem {
 
     const prevSpeed = tank.speed;
 
-    // Throttle against the direction of travel brakes at least as hard as letting go, so a
-    // shallow analog pull-back stops the tank instead of letting it roll on for seconds.
-    if (input.throttle > 0.02) {
+    if (input.directDrive) {
+      driveTowardSpeed(tank, input.throttle, maxFwd, maxRev, accel, decel, dt);
+    } else if (input.throttle > 0.02) {
+      // Throttle against the direction of travel brakes at least as hard as letting go, so a
+      // shallow analog pull-back stops the tank instead of letting it roll on for seconds.
       const rate = tank.speed < 0 ? Math.max(decel, accel * input.throttle) : accel * input.throttle;
       tank.speed = Math.min(maxFwd, tank.speed + rate * dt);
     } else if (input.throttle < -0.02) {
@@ -56,8 +73,9 @@ export class MovementSystem {
     // Car-style reverse steering (feels like a real vehicle!), keyed off the way the hull is
     // actually rolling rather than the throttle: braking out of a forward turn keeps turning the
     // same way until the tank stops, then the turn eases across a small reverse-speed band
-    // instead of snapping. Pivoting in place is unaffected.
-    const steerSign = clamp(1 + (2 * tank.speed) / REVERSE_STEER_BLEND, -1, 1);
+    // instead of snapping. Pivoting in place is unaffected. Direct drive (the touch joystick)
+    // already names the hull rotation it wants, so it is never flipped.
+    const steerSign = input.directDrive ? 1 : clamp(1 + (2 * tank.speed) / REVERSE_STEER_BLEND, -1, 1);
     const steerDir = input.turn * steerSign;
     const turnRate = (tank.baseTurnSpeed || TANK_TURN_SPEED) * specTurnMul;
     const prevYaw = tank.yaw;

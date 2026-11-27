@@ -218,15 +218,6 @@ export class InputManager {
       if (this.mouseJustPressed.has(2)) action = true;
     }
 
-    // On-screen touch joystick & buttons drive the same primary player (P1 local, or LAN Guest)
-    if (this.touch && (usePrimaryControls || player.index === 0)) {
-      const t = this.touch.read();
-      if (t.throttle !== 0) throttle = t.throttle;
-      if (t.turn !== 0) turn = t.turn;
-      if (t.fire) fire = true;
-      if (t.action) action = true;
-    }
-
     // Universal Gamepad / Flight-Stick support
     const padPlayerIdx = usePrimaryControls ? 0 : player.index;
     const gp = this.getGamepadForPlayer(padPlayerIdx);
@@ -272,11 +263,26 @@ export class InputManager {
       this._actionLatches.set(padPlayerIdx, grabPressed);
     }
 
+    // On-screen touch joystick & buttons drive the same primary player (P1 local, or LAN Guest).
+    // While a thumb is on the stick it owns movement, as a direct-drive command (see MovementSystem).
+    let directDrive = false;
+    if (this.touch && (usePrimaryControls || player.index === 0)) {
+      const t = this.touch.read();
+      if (t.steering) {
+        throttle = t.throttle;
+        turn = t.turn;
+        directDrive = true;
+      }
+      if (t.fire) fire = true;
+      if (t.action) action = true;
+    }
+
     return {
       throttle: clamp(throttle, -1, 1),
       turn: clamp(turn, -1, 1),
       fire,
       action,
+      directDrive,
     };
   }
 }

@@ -1,8 +1,16 @@
-import { clamp, applyDeadzone } from '../core/MathUtils.js';
+import { clamp } from '../core/MathUtils.js';
 
-const STICK_AXIS_DEADZONE = 0.14;
 // How far the knob may travel from the ring's center, as a fraction of the ring's diameter.
 const STICK_TRAVEL = 0.36;
+// Stick-to-drive mapping (see stickToDrive). Angles are the push's direction measured from
+// straight up: 0 = up, 90 = sideways, 180 = down.
+const STICK_DEADZONE = 0.16;      // radial, as a fraction of the knob's travel
+const STRAIGHT_CONE_DEG = 8;      // this close to straight up / down drives without turning
+const FORWARD_EDGE_DEG = 70;      // forward speed fades out by here...
+const REVERSE_EDGE_DEG = 125;     // ...and reverse only fades in past here, so a sideways push
+                                  // whose thumb drifts up or down still just pivots
+const RAD_TO_DEG = 180 / Math.PI;
+const HALF_PI = Math.PI / 2;
 // Ignore stage taps this long after the controls hide, so a thumb still hammering Fire when the
 // match ends cannot instantly restart it.
 const STAGE_TAP_GRACE_MS = 900;
@@ -22,6 +30,33 @@ export function isAppleTouchDevice(nav = navigator) {
   const ua = nav.userAgent || '';
   if (/iPhone|iPad|iPod/.test(ua)) return true;
   return /Macintosh/.test(ua) && (nav.maxTouchPoints || 0) > 1;
+}
+
+/**
+ * Maps the on-screen stick to a direct-drive command (see MovementSystem): the push's direction
+ * picks forward / pivot / reverse, its length picks how fast, and which side of center the thumb
+ * is on alone picks the turn, so holding the stick left always turns the hull (and the chase
+ * camera) left, even while reversing. Unlike the keyboard there is no car-style reverse flip.
+ * (x, y): knob offset as a fraction of its travel, in screen axes (+x right, +y down).
+ */
+export function stickToDrive(x, y) {
+  const length = Math.min(1, Math.hypot(x, y));
+  if (length <= STICK_DEADZONE) return { throttle: 0, turn: 0 };
+  const power = (length - STICK_DEADZONE) / (1 - STICK_DEADZONE);
+  const angle = Math.abs(Math.atan2(x, -y)) * RAD_TO_DEG;
+
+  let throttle = 0;
+  if (angle < FORWARD_EDGE_DEG) {
+    throttle = power * Math.cos((angle / FORWARD_EDGE_DEG) * HALF_PI);
+  } else if (angle > REVERSE_EDGE_DEG) {
+    throttle = -power * Math.sin(((angle - REVERSE_EDGE_DEG) / (180 - REVERSE_EDGE_DEG)) * HALF_PI);
+  }
+
+  // Turn strength: none near straight up / down, full across the sideways (pivot) band.
+  const offAxis = Math.min(angle, 180 - angle);
+  const fullTurnAt = angle < 90 ? FORWARD_EDGE_DEG : 180 - REVERSE_EDGE_DEG;
+  const turnShare = clamp((offAxis - STRAIGHT_CONE_DEG) / (fullTurnAt - STRAIGHT_CONE_DEG), 0, 1);
+  return { throttle, turn: -Math.sign(x) * power * turnShare };
 }
 
 export function hasTouchScreen(nav = navigator) {
@@ -60,7 +95,7 @@ export class TouchControls {
     this.onStageTap = null;
     this.onPortrait = null;
 
-    this._stick = { x: 0, y: 0 };
+    this._drive = { throttle: 0, turn: 0 };
     this._stickPointer = null;
     this._stickCenter = { x: 0, y: 0 };
     this._stickTravel = 1;
@@ -82,8 +117,9 @@ export class TouchControls {
   // ==========================================================================
   read() {
     return {
-      throttle: -this._stick.y,
-      turn: -this._stick.x,
+      steering: this._stickPointer !== null, // thumb on the stick: it owns throttle & turn
+      throttle: this._drive.throttle,
+      turn: this._drive.turn,
       fire: this._firePointers.size > 0 || this._fireJustPressed,
       action: this._grabJustPressed,
     };
@@ -230,14 +266,12 @@ export class TouchControls {
       dy *= travel / dist;
     }
     this.stickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
-    this._stick.x = applyDeadzone(dx / travel, STICK_AXIS_DEADZONE);
-    this._stick.y = applyDeadzone(dy / travel, STICK_AXIS_DEADZONE);
+    this._drive = stickToDrive(dx / travel, dy / travel);
   }
 
   _releaseStick() {
     this._stickPointer = null;
-    this._stick.x = 0;
-    this._stick.y = 0;
+    this._drive = { throttle: 0, turn: 0 };
     this.stickKnob.style.transform = '';
     this.stickBase.style.transform = '';
     this.stickZone.classList.remove('is-engaged');
