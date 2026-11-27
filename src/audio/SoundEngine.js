@@ -1,6 +1,10 @@
 import { EVENTS } from '../core/EventBus.js';
 import { TILE } from '../config/constants.js';
 
+// Events browsers accept as a user gesture that may start audio. On iOS, touchstart and a touch's
+// pointerdown do not count, so a tap on the touch Fire button only unlocks audio on touchend.
+const UNLOCK_EVENTS = ['touchend', 'mousedown', 'click', 'keydown'];
+
 /**
  * Event-Driven Synthesized Web Audio Engine (SRP + DIP).
  * Subscribes to domain events on EventBus — zero audio calls inside simulation code.
@@ -10,7 +14,28 @@ export class SoundEngine {
     this.ctx = null;
     this.muted = false;
     this.lastLockTime = 0;
+    this._resuming = false;
     if (bus) this.bindBus(bus);
+    if (typeof window !== 'undefined') this.bindUnlockEvents(window);
+  }
+
+  /**
+   * Browsers (iOS Safari strictest) only let audio start or resume inside a user gesture, and iOS
+   * suspends or "interrupts" the context again after a call, Siri, a screen lock or an app switch.
+   * So every gesture for the page's lifetime gets a chance to bring audio back.
+   */
+  bindUnlockEvents(win) {
+    const unlock = () => this.unlock();
+    for (const type of UNLOCK_EVENTS) {
+      win.addEventListener(type, unlock, { capture: true, passive: true });
+    }
+    // Back from the background: resume straight away where the browser allows it without a tap.
+    const doc = win.document;
+    doc.addEventListener('visibilitychange', () => {
+      const ctx = this.ctx;
+      if (doc.visibilityState !== 'visible' || this.muted || !ctx) return;
+      if (ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
+    });
   }
 
   bindBus(bus) {
@@ -48,20 +73,48 @@ export class SoundEngine {
     });
   }
 
-  ensure() {
-    if (this.muted) return null;
+  _context() {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) this.ctx = new AudioCtx();
-    }
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch(() => {});
+      if (!AudioCtx) return null;
+      // iOS plays Web Audio as "ambient" sound, which the Ring/Silent switch mutes, and plenty of
+      // iPhones live on silent. "playback" makes the game audible the way a video is.
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+      this.ctx = new AudioCtx();
     }
     return this.ctx;
   }
 
+  /** Starts or resumes audio. Only works when called from inside a user gesture. */
+  unlock() {
+    if (this.muted) return;
+    const ctx = this._context();
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    // Not a gesture after all (e.g. Escape): resume() would only sit pending until the next one.
+    if (navigator.userActivation && !navigator.userActivation.isActive) return;
+    this._resuming = true;
+    ctx.resume().catch(() => {}).finally(() => { this._resuming = false; });
+  }
+
+  /** The context to schedule a sound on, or null while sound is muted or not playing. */
+  ensure() {
+    if (this.muted) return null;
+    const ctx = this._context();
+    if (!ctx) return null;
+    // A gesture resumes the clock asynchronously, so sounds from that same tap (the stage-start
+    // jingle on Deploy) still get scheduled. Otherwise, while suspended (no tap yet) or in Safari's
+    // "interrupted" state (call, Siri, screen lock), skip the sound: with the clock frozen, every
+    // queued sound would fire at once when audio comes back.
+    if (ctx.state === 'running' || (this._resuming && ctx.state === 'suspended')) return ctx;
+    return null;
+  }
+
   toggleMute() {
     this.muted = !this.muted;
+    // Muting releases the audio session so other apps' audio can play; unmuting happens on a click
+    // or the M key, which is a gesture, so audio can resume right away.
+    if (this.muted) this.ctx?.suspend().catch(() => {});
+    else this.unlock();
     return this.muted;
   }
 
