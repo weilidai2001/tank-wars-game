@@ -21,7 +21,7 @@ A 3D arcade Main Battle Tank (MBT) arena game playable solo or in **1–4 player
 
 | Player | Move / Turn | Fire Cannon | Grab / Drop Wall |
 | :--- | :--- | :--- | :--- |
-| **1P (+ Joystick)** | `W` `A` `S` `D` or `Left Stick / D-Pad` | `Space` / `F` / `Trigger` | `E` / `Q` / `B` |
-| **2P** | `↑` `←` `↓` `→` | `Enter` / `/` | `Right Ctrl` / `\` |
+| **1P (+ Mouse / Gamepad)** | `↑` `←` `↓` `→` or `Left Stick / D-Pad` | `Enter` / `LMB` / `/` / `Trigger` | `RMB` / `Right Ctrl` / `\` / `B` |
+| **2P** | `W` `A` `S` `D` | `Space` / `F` | `E` / `Q` |
 | **3P** | `U` `H` `J` `K` | `I` | `O` / `Y` |
 | **4P** | `Numpad 8` `4` `5` `6` | `Numpad 0` | `Numpad Enter` |

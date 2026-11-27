@@ -34,10 +34,12 @@ function applyDeadzone(val, deadzone = 0.16) {
 }
 
 // ============================================================================
-// Input Manager (4-Player Keyboard + Optional Gamepad API)
+// Input Manager (4-Player Keyboard + P1 Mouse + Optional Gamepad API)
 // ============================================================================
 const keysDown = new Set();
 const keysJustPressed = new Set();
+const mouseDown = new Set();
+const mouseJustPressed = new Set();
 
 const PREVENT_KEYS = new Set([
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab',
@@ -125,7 +127,7 @@ class TankWars3DGame {
     this.cameraPresetIndex = 0; // 0 = Behind Tank (default)
     this.cameraPitchOffset = 0; // Adjustable with [ and ] keys
     this.gpsHeadingUp = true;   // Rotating Sat-Nav GPS by default!
-    this.joystickOffset = 0;    // 0 => Joystick 1 controls 1P (+WASD); 1 => Joystick 1 controls 2P
+    this.joystickOffset = 0;    // 0 => Joystick 1 controls 1P (+Arrows/Mouse); 1 => Joystick 1 controls 2P
     this._gpStartLatch = false;
     this._gpViewLatch = false;
     this._lastJoySignature = '';
@@ -210,6 +212,30 @@ class TankWars3DGame {
 
     window.addEventListener('blur', () => {
       keysDown.clear();
+      mouseDown.clear();
+      mouseJustPressed.clear();
+    });
+
+    // Player 1 Mouse controls on the 3D battlefield canvas (LMB = Fire, RMB = Grab/Drop Wall)
+    this.glCanvas.addEventListener('mousedown', (e) => {
+      if (this.state !== 'PLAYING' || this.paused) return;
+      if (e.button === 0 || e.button === 2) {
+        e.preventDefault();
+        if (!mouseDown.has(e.button)) {
+          mouseJustPressed.add(e.button);
+        }
+        mouseDown.add(e.button);
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      mouseDown.delete(e.button);
+    });
+
+    this.glCanvas.addEventListener('contextmenu', (e) => {
+      if (this.state === 'PLAYING' && !this.paused) {
+        e.preventDefault();
+      }
     });
 
     const ro = new ResizeObserver(() => this.handleResize());
@@ -366,6 +392,8 @@ class TankWars3DGame {
   openMenu() {
     this.state = 'MENU';
     this.paused = false;
+    mouseDown.clear();
+    mouseJustPressed.clear();
     this.menuOverlay.hidden = false;
     this.syncHeaderButtons();
     this.loadMenuPreviewArena();
@@ -710,6 +738,7 @@ class TankWars3DGame {
 
     this.render();
     keysJustPressed.clear();
+    mouseJustPressed.clear();
     requestAnimationFrame((t) => this.loop(t));
   }
 
@@ -931,6 +960,12 @@ class TankWars3DGame {
     if (isAnyDown(p.keys.right)) turn -= 1; // -yaw = Right!
     if (isAnyDown(p.keys.fire)) fire = true;
     if (isAnyJustPressed(p.keys.action)) action = true;
+
+    // Player 1 Mouse controls: Left Mouse Button = Fire, Right Mouse Button = Grab/Drop Wall
+    if (p.index === 0) {
+      if (mouseDown.has(0) || mouseJustPressed.has(0)) fire = true;
+      if (mouseJustPressed.has(2)) action = true;
+    }
 
     // Universal Browser Joystick / Gamepad / Flight-Stick support!
     const gp = this.getGamepadForPlayer(p.index);
