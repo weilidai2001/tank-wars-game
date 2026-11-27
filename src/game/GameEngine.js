@@ -1055,7 +1055,7 @@ export class GameEngine {
 
   _tickHostNetwork(dt) {
     this._netSendAccum += dt;
-    if (this._netSendAccum >= 1 / 30) {
+    if (this._netSendAccum >= 1 / 20) {
       this._netSendAccum = 0;
       this._sendHostSnapshot();
     }

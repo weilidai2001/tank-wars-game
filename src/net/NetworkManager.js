@@ -1,9 +1,10 @@
 /**
- * Peer-to-Peer WebRTC NetworkManager (Single Responsibility Principle).
- * Uses PeerJS for lightweight room-code signaling over the internet, while WebRTC ICE
- * automatically routes game traffic directly over the local LAN when both PCs share a network.
+ * Static-Webpage Multiplayer NetworkManager over Secure WebSockets (MQTT/WSS).
+ * Uses public WSS MQTT brokers (EMQX primary, HiveMQ fallback) so two computers can
+ * connect reliably in <300 ms even behind corporate firewalls, VPNs, symmetric NATs,
+ * or Wi-Fi client isolation where WebRTC ICE gets blocked.
  *
- * Keeps the game 100% static (zero backend required) and loads PeerJS on demand so
+ * Keeps the game 100% static (zero backend required) and loads mqtt.js on demand so
  * offline local play has zero external dependencies.
  */
 
@@ -13,57 +14,39 @@ export const NET_ROLE = Object.freeze({
   GUEST: 'GUEST',
 });
 
-const PEER_PREFIX = 'ironsight-tw-';
+const TOPIC_PREFIX = 'ironsight/tw/v1';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const PEERJS_CDNS = [
-  'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
-  'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
+
+const MQTT_CDNS = [
+  'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js',
+  'https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js',
 ];
 
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:openrelay.metered.ca:80' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-};
+const BROKER_URLS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+];
 
-let _peerJsLoadPromise = null;
+let _mqttLoadPromise = null;
 
-function loadPeerJS() {
-  if (typeof window !== 'undefined' && window.Peer) {
-    return Promise.resolve(window.Peer);
+function loadMqttJS() {
+  if (typeof window !== 'undefined' && window.mqtt) {
+    return Promise.resolve(window.mqtt);
   }
-  if (_peerJsLoadPromise) return _peerJsLoadPromise;
+  if (_mqttLoadPromise) return _mqttLoadPromise;
 
-  _peerJsLoadPromise = new Promise((resolve, reject) => {
+  _mqttLoadPromise = new Promise((resolve, reject) => {
     const tryNext = (idx) => {
-      if (idx >= PEERJS_CDNS.length) {
-        _peerJsLoadPromise = null;
-        reject(new Error('Failed to load PeerJS library. Check internet connection.'));
+      if (idx >= MQTT_CDNS.length) {
+        _mqttLoadPromise = null;
+        reject(new Error('Failed to load network client library. Check internet connection.'));
         return;
       }
       const script = document.createElement('script');
-      script.src = PEERJS_CDNS[idx];
+      script.src = MQTT_CDNS[idx];
       script.async = true;
       script.onload = () => {
-        if (window.Peer) resolve(window.Peer);
+        if (window.mqtt) resolve(window.mqtt);
         else tryNext(idx + 1);
       };
       script.onerror = () => {
@@ -75,7 +58,7 @@ function loadPeerJS() {
     tryNext(0);
   });
 
-  return _peerJsLoadPromise;
+  return _mqttLoadPromise;
 }
 
 function generateRoomCode(len = 4) {
@@ -84,6 +67,10 @@ function generateRoomCode(len = 4) {
     code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
   }
   return code;
+}
+
+function randomId() {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export class NetworkManager {
@@ -96,10 +83,24 @@ export class NetworkManager {
     this.roomCode = '';
     this.pingMs = null;
 
-    this._peer = null;
-    this._conn = null;
+    this._client = null;
+    this._clientId = `tw-${randomId()}`;
+    this._peerConnected = false;
+    this._guestId = null;
+    this._lastPeerRx = 0;
+
+    this._subTopic = '';
+    this._pubTopic = '';
     this._pingTimer = null;
+    this._helloTimer = null;
     this._connectTimer = null;
+    this._sessionNonce = 0;
+
+    window.addEventListener('beforeunload', () => {
+      if (this._client && this._peerConnected) {
+        this._publishRaw({ type: 'bye', from: this._clientId });
+      }
+    });
   }
 
   isNetworked() {
@@ -115,7 +116,7 @@ export class NetworkManager {
   }
 
   isConnected() {
-    return Boolean(this._conn && this._conn.open);
+    return Boolean(this._client && this._client.connected && this._peerConnected);
   }
 
   getInviteUrl() {
@@ -142,58 +143,20 @@ export class NetworkManager {
 
   async hostRoom(customCode = null) {
     this.disconnect(false);
+    const nonce = ++this._sessionNonce;
     this.role = NET_ROLE.HOST;
     this.roomCode = (customCode || generateRoomCode(4)).toUpperCase().replace(/[^A-Z0-9]/g, '');
-    this._setStatus('loading', 'Initializing WebRTC host...');
+    this._subTopic = `${TOPIC_PREFIX}/${this.roomCode}/g2h`;
+    this._pubTopic = `${TOPIC_PREFIX}/${this.roomCode}/h2g`;
+    this._setStatus('loading', 'Connecting to relay...');
 
-    let PeerCtor;
     try {
-      PeerCtor = await loadPeerJS();
+      await this._connectBroker(nonce, 0);
     } catch (err) {
+      if (nonce !== this._sessionNonce) return;
       this.role = NET_ROLE.LOCAL;
-      this._setStatus('error', err.message);
-      return;
+      this._setStatus('error', err.message || 'Failed to open room.');
     }
-
-    const peerId = `${PEER_PREFIX}${this.roomCode}`;
-    const peer = new PeerCtor(peerId, { config: ICE_CONFIG });
-    this._peer = peer;
-
-    peer.on('open', () => {
-      if (this._peer !== peer) return;
-      this._setStatus('waiting', `Room ${this.roomCode} ready — waiting for Player 2...`);
-    });
-
-    peer.on('connection', (conn) => {
-      if (this._peer !== peer) return;
-      // Only allow 1 guest in 2P mode; reject extra connections cleanly
-      if (this._conn && this._conn.open) {
-        conn.on('open', () => {
-          conn.send({ type: 'full' });
-          setTimeout(() => conn.close(), 120);
-        });
-        return;
-      }
-      this._setStatus('connecting', `Player 2 found — establishing P2P link...`);
-      this._attachConnection(conn);
-    });
-
-    peer.on('error', (err) => {
-      if (this._peer !== peer) return;
-      if (err && err.type === 'unavailable-id' && !customCode) {
-        // Rare room code collision — retry with a fresh code
-        this.hostRoom();
-        return;
-      }
-      this._setStatus('error', `Host error: ${err?.message || err?.type || 'Connection failed'}`);
-    });
-
-    peer.on('disconnected', () => {
-      if (this._peer !== peer) return;
-      if (!this.isConnected()) {
-        this._setStatus('error', 'Signaling disconnected. Click Host Room to retry.');
-      }
-    });
   }
 
   async joinRoom(rawCode) {
@@ -204,176 +167,251 @@ export class NetworkManager {
     }
 
     this.disconnect(false);
+    const nonce = ++this._sessionNonce;
     this.role = NET_ROLE.GUEST;
     this.roomCode = cleanCode;
+    this._subTopic = `${TOPIC_PREFIX}/${cleanCode}/h2g`;
+    this._pubTopic = `${TOPIC_PREFIX}/${cleanCode}/g2h`;
     this._setStatus('loading', `Connecting to room ${cleanCode}...`);
 
-    let PeerCtor;
     try {
-      PeerCtor = await loadPeerJS();
+      await this._connectBroker(nonce, 0);
     } catch (err) {
+      if (nonce !== this._sessionNonce) return;
       this.role = NET_ROLE.LOCAL;
-      this._setStatus('error', err.message);
-      return;
+      this._setStatus('error', err.message || 'Failed to join room.');
     }
+  }
 
-    const peer = new PeerCtor(undefined, { config: ICE_CONFIG });
-    this._peer = peer;
+  async _connectBroker(nonce, brokerIdx) {
+    const mqttLib = await loadMqttJS();
+    if (nonce !== this._sessionNonce) return;
 
-    peer.on('open', () => {
-      if (this._peer !== peer) return;
-      this._setStatus('connecting', `Joining room ${cleanCode}...`);
-      const conn = peer.connect(`${PEER_PREFIX}${cleanCode}`, {
-        reliable: true,
-        serialization: 'json',
+    const brokerUrl = BROKER_URLS[brokerIdx];
+    const client = mqttLib.connect(brokerUrl, {
+      clientId: `${this._clientId}-${randomId().slice(0, 4)}`,
+      clean: true,
+      connectTimeout: 6000,
+      reconnectPeriod: 0,
+      keepalive: 25,
+    });
+    this._client = client;
+
+    let settled = false;
+
+    client.on('connect', () => {
+      if (nonce !== this._sessionNonce || this._client !== client) return;
+      settled = true;
+
+      client.subscribe(this._subTopic, { qos: 0 }, (err) => {
+        if (nonce !== this._sessionNonce || this._client !== client) return;
+        if (err) {
+          this._setStatus('error', `Subscribe error: ${err.message}`);
+          return;
+        }
+
+        if (this.isHost()) {
+          this._setStatus('waiting', `Room ${this.roomCode} ready — waiting for Player 2...`);
+        } else {
+          this._setStatus('connecting', `Joining room ${this.roomCode}...`);
+          this._startGuestHello(nonce);
+        }
       });
-      this._attachConnection(conn);
     });
 
-    peer.on('error', (err) => {
-      if (this._peer !== peer) return;
-      const msg = err?.type === 'peer-unavailable'
-        ? `Room ${cleanCode} not found. Check the code and ensure Host is open.`
-        : `Connection error: ${err?.message || err?.type || 'Failed to connect'}`;
-      this._setStatus('error', msg);
+    client.on('message', (_topic, payloadBuf) => {
+      if (nonce !== this._sessionNonce || this._client !== client) return;
+      let msg;
+      try {
+        msg = JSON.parse(payloadBuf.toString());
+      } catch {
+        return;
+      }
+      if (!msg || typeof msg !== 'object') return;
+      this._handleIncoming(msg);
+    });
+
+    client.on('error', () => {
+      if (nonce !== this._sessionNonce || this._client !== client) return;
+      if (!settled && brokerIdx + 1 < BROKER_URLS.length) {
+        settled = true;
+        try { client.end(true); } catch {}
+        this._connectBroker(nonce, brokerIdx + 1).catch((e) => {
+          if (nonce === this._sessionNonce) {
+            this._setStatus('error', e.message || 'Could not reach relay server.');
+          }
+        });
+      } else if (!settled) {
+        settled = true;
+        this._setStatus('error', 'Unable to reach relay server. Check internet connection.');
+      }
+    });
+
+    client.on('close', () => {
+      if (nonce !== this._sessionNonce || this._client !== client) return;
+      if (!settled && brokerIdx + 1 < BROKER_URLS.length) {
+        settled = true;
+        this._connectBroker(nonce, brokerIdx + 1).catch(() => {});
+        return;
+      }
+      if (this._peerConnected) {
+        this._handlePeerLost();
+      }
     });
   }
 
-  _attachConnection(conn) {
-    this._conn = conn;
-    this._clearConnectTimer();
+  _startGuestHello(nonce) {
+    this._clearTimers();
+    const sendHello = () => {
+      if (nonce !== this._sessionNonce || !this._client || !this._client.connected || this._peerConnected) return;
+      this._publishRaw({ type: 'hello', from: this._clientId });
+    };
+    sendHello();
+    this._helloTimer = setInterval(sendHello, 1200);
 
     this._connectTimer = setTimeout(() => {
-      if (this._conn === conn && !conn.open) {
-        this._setStatus(
-          'error',
-          `Timed out connecting to room ${this.roomCode}. Check the code and ensure Host is still open, then retry.`
-        );
-      }
-    }, 15000);
-
-    const handleOpen = () => {
-      if (this._conn !== conn) return;
-      this._clearConnectTimer();
-      this.pingMs = null;
-      this._startPingLoop();
+      if (nonce !== this._sessionNonce || this._peerConnected) return;
+      this._clearTimers();
       this._setStatus(
-        'connected',
-        this.isHost()
-          ? `Player 2 joined Room ${this.roomCode}!`
-          : `Connected to Host (${this.roomCode})!`
+        'error',
+        `Room ${this.roomCode} not found. Ensure Host clicked "Host Room" and the code matches.`
       );
-      if (this.callbacks.onPeerConnected) {
-        this.callbacks.onPeerConnected();
-      }
-    };
+    }, 10000);
+  }
 
-    conn.on('open', handleOpen);
+  _handleIncoming(msg) {
+    this._lastPeerRx = performance.now();
 
-    conn.on('iceStateChanged', (iceState) => {
-      if (this._conn !== conn || conn.open) return;
-      if (iceState === 'checking') {
-        this._setStatus('connecting', `Negotiating P2P link (${this.roomCode})...`);
-      } else if (iceState === 'failed') {
-        this._clearConnectTimer();
-        this._setStatus('error', 'WebRTC P2P blocked by firewall/NAT. Try reconnecting or check network settings.');
-      }
-    });
-
-    if (conn.open) {
-      handleOpen();
-    }
-
-    conn.on('data', (msg) => {
-      if (this._conn !== conn || !msg || typeof msg !== 'object') return;
-      if (msg.type === 'ping') {
-        this.send({ type: 'pong', t: msg.t });
+    if (this.isHost()) {
+      if (msg.type === 'hello') {
+        const sender = msg.from || 'guest';
+        if (this._peerConnected && this._guestId && this._guestId !== sender) {
+          this._publishRaw({ type: 'full', to: sender });
+          return;
+        }
+        this._guestId = sender;
+        const wasConnected = this._peerConnected;
+        this._peerConnected = true;
+        this._publishRaw({ type: 'welcome', to: sender });
+        if (!wasConnected) {
+          this.pingMs = null;
+          this._startHeartbeat();
+          this._setStatus('connected', `Player 2 joined Room ${this.roomCode}!`);
+          if (this.callbacks.onPeerConnected) this.callbacks.onPeerConnected();
+        }
         return;
       }
-      if (msg.type === 'pong') {
-        this.pingMs = Math.max(1, Math.round(performance.now() - msg.t));
-        this._setStatus(this.status, this.statusMessage);
+      if (msg.type === 'bye') {
+        if (this._peerConnected && (!this._guestId || msg.from === this._guestId)) {
+          this._handlePeerLost();
+        }
         return;
       }
-      if (msg.type === 'full') {
+    } else if (this.isGuest()) {
+      if (msg.type === 'welcome' && (!msg.to || msg.to === this._clientId)) {
+        if (!this._peerConnected) {
+          this._clearTimers();
+          this._peerConnected = true;
+          this.pingMs = null;
+          this._startHeartbeat();
+          this._setStatus('connected', `Connected to Host (${this.roomCode})!`);
+          if (this.callbacks.onPeerConnected) this.callbacks.onPeerConnected();
+        }
+        return;
+      }
+      if (msg.type === 'full' && (!msg.to || msg.to === this._clientId)) {
+        this._clearTimers();
         this._setStatus('error', 'Room is already full.');
         this.disconnect(false);
         return;
       }
-      if (this.callbacks.onMessage) {
-        this.callbacks.onMessage(msg);
+      if (msg.type === 'bye') {
+        if (this._peerConnected) {
+          this._handlePeerLost();
+        }
+        return;
       }
-    });
+    }
 
-    conn.on('close', () => {
-      if (this._conn !== conn) return;
-      this._clearConnectTimer();
-      this._stopPingLoop();
-      this._conn = null;
-      this.pingMs = null;
-      if (this.isHost()) {
-        this._setStatus('waiting', `Player 2 disconnected. Room ${this.roomCode} still open...`);
-      } else if (this.isGuest()) {
-        this._setStatus('error', 'Disconnected from Host.');
-      }
-      if (this.callbacks.onPeerDisconnected) {
-        this.callbacks.onPeerDisconnected();
-      }
-    });
+    if (msg.type === 'ping') {
+      this._publishRaw({ type: 'pong', t: msg.t });
+      return;
+    }
+    if (msg.type === 'pong') {
+      this.pingMs = Math.max(1, Math.round(performance.now() - msg.t));
+      this._setStatus(this.status, this.statusMessage);
+      return;
+    }
 
-    conn.on('error', (err) => {
-      if (this._conn !== conn) return;
-      this._clearConnectTimer();
-      this._setStatus('error', `Link error: ${err?.message || 'Connection lost'}`);
-    });
-  }
-
-  _clearConnectTimer() {
-    if (this._connectTimer) {
-      clearTimeout(this._connectTimer);
-      this._connectTimer = null;
+    if (this._peerConnected && this.callbacks.onMessage) {
+      this.callbacks.onMessage(msg);
     }
   }
 
-  _startPingLoop() {
-    this._stopPingLoop();
-    const sendPing = () => {
-      if (this.isConnected()) {
-        this.send({ type: 'ping', t: performance.now() });
+  _startHeartbeat() {
+    if (this._pingTimer) clearInterval(this._pingTimer);
+    this._lastPeerRx = performance.now();
+    const tick = () => {
+      if (!this.isConnected()) return;
+      if (performance.now() - this._lastPeerRx > 10000) {
+        this._handlePeerLost();
+        return;
       }
+      this._publishRaw({ type: 'ping', t: performance.now() });
     };
-    sendPing();
-    this._pingTimer = setInterval(sendPing, 2000);
+    tick();
+    this._pingTimer = setInterval(tick, 2000);
   }
 
-  _stopPingLoop() {
-    if (this._pingTimer) {
-      clearInterval(this._pingTimer);
-      this._pingTimer = null;
+  _handlePeerLost() {
+    this._clearTimers();
+    this._peerConnected = false;
+    this._guestId = null;
+    this.pingMs = null;
+    if (this.isHost()) {
+      this._setStatus('waiting', `Player 2 disconnected. Room ${this.roomCode} still open...`);
+    } else if (this.isGuest()) {
+      this._setStatus('error', 'Disconnected from Host.');
+    }
+    if (this.callbacks.onPeerDisconnected) {
+      this.callbacks.onPeerDisconnected();
+    }
+  }
+
+  _clearTimers() {
+    if (this._pingTimer) { clearInterval(this._pingTimer); this._pingTimer = null; }
+    if (this._helloTimer) { clearInterval(this._helloTimer); this._helloTimer = null; }
+    if (this._connectTimer) { clearTimeout(this._connectTimer); this._connectTimer = null; }
+  }
+
+  _publishRaw(payload) {
+    if (this._client && this._client.connected && this._pubTopic) {
+      try {
+        this._client.publish(this._pubTopic, JSON.stringify(payload), { qos: 0 });
+      } catch {
+        // Ignore transient publish errors
+      }
     }
   }
 
   send(payload) {
-    if (this._conn && this._conn.open) {
-      try {
-        this._conn.send(payload);
-      } catch {
-        // Ignore transient send errors while closing
-      }
+    if (this.isConnected()) {
+      this._publishRaw(payload);
     }
   }
 
   disconnect(notify = true) {
-    this._clearConnectTimer();
-    this._stopPingLoop();
-    if (this._conn) {
-      try { this._conn.close(); } catch {}
-      this._conn = null;
+    this._sessionNonce++;
+    this._clearTimers();
+    if (this._client) {
+      if (this._peerConnected) {
+        this._publishRaw({ type: 'bye', from: this._clientId });
+      }
+      try { this._client.end(true); } catch {}
+      this._client = null;
     }
-    if (this._peer) {
-      try { this._peer.destroy(); } catch {}
-      this._peer = null;
-    }
+    this._peerConnected = false;
+    this._guestId = null;
     this.role = NET_ROLE.LOCAL;
     this.roomCode = '';
     this.pingMs = null;
