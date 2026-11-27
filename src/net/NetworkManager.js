@@ -1,11 +1,8 @@
 /**
- * Static-Webpage Multiplayer NetworkManager over Secure WebSockets (MQTT/WSS).
- * Uses public WSS MQTT brokers (EMQX primary, HiveMQ fallback) so two computers can
- * connect reliably in <300 ms even behind corporate firewalls, VPNs, symmetric NATs,
- * or Wi-Fi client isolation where WebRTC ICE gets blocked.
- *
- * Keeps the game 100% static (zero backend required) and loads mqtt.js on demand so
- * offline local play has zero external dependencies.
+ * Static-Webpage 2-4P Multiplayer NetworkManager over Secure WebSockets (MQTT/WSS).
+ * Host acts as 1P (slot 0) and assigns joining computers to slots 1 (2P), 2 (3P), and 3 (4P).
+ * Uses public WSS MQTT brokers (EMQX primary, HiveMQ fallback) so players connect reliably
+ * in <300 ms while keeping the game 100% static (zero backend required).
  */
 
 export const NET_ROLE = Object.freeze({
@@ -13,6 +10,8 @@ export const NET_ROLE = Object.freeze({
   HOST: 'HOST',
   GUEST: 'GUEST',
 });
+
+export const MAX_LAN_PLAYERS = 4;
 
 const TOPIC_PREFIX = 'ironsight/tw/v1';
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -82,12 +81,14 @@ export class NetworkManager {
     this.statusMessage = '';
     this.roomCode = '';
     this.pingMs = null;
+    this.localPlayerIndex = 0; // 0 for Host, 1..3 for Guests
 
     this._client = null;
     this._clientId = `tw-${randomId()}`;
-    this._peerConnected = false;
-    this._guestId = null;
-    this._lastPeerRx = 0;
+    this._peerConnected = false; // Guest connected to Host
+    /** @type {Map<string, { slot: number, lastSeen: number }>} */
+    this._guests = new Map(); // Host roster of connected Guests
+    this._lastHostRx = 0;
 
     this._subTopic = '';
     this._pubTopic = '';
@@ -97,8 +98,8 @@ export class NetworkManager {
     this._sessionNonce = 0;
 
     window.addEventListener('beforeunload', () => {
-      if (this._client && this._peerConnected) {
-        this._publishRaw({ type: 'bye', from: this._clientId });
+      if (this._client && this.isConnected()) {
+        this._publishRaw({ type: 'bye', from: this._clientId, slot: this.localPlayerIndex });
       }
     });
   }
@@ -116,7 +117,25 @@ export class NetworkManager {
   }
 
   isConnected() {
-    return Boolean(this._client && this._client.connected && this._peerConnected);
+    if (!this._client || !this._client.connected) return false;
+    return this.isHost() ? this._guests.size > 0 : this._peerConnected;
+  }
+
+  getConnectedGuestSlots() {
+    const slots = [];
+    for (const g of this._guests.values()) slots.push(g.slot);
+    slots.sort((a, b) => a - b);
+    return slots;
+  }
+
+  getPlayerCount() {
+    if (this.isHost()) return Math.max(2, 1 + this._guests.size);
+    return Math.max(2, this.localPlayerIndex + 1);
+  }
+
+  getConnectedTotalPlayers() {
+    if (this.isHost()) return 1 + this._guests.size;
+    return this._peerConnected ? Math.max(2, this.localPlayerIndex + 1) : 1;
   }
 
   getInviteUrl() {
@@ -137,14 +156,26 @@ export class NetworkManager {
         message: this.statusMessage,
         roomCode: this.roomCode,
         pingMs: this.pingMs,
+        localPlayerIndex: this.localPlayerIndex,
+        guestSlots: this.getConnectedGuestSlots(),
       });
     }
+  }
+
+  _formatHostRosterMessage() {
+    const slots = this.getConnectedGuestSlots();
+    if (slots.length === 0) {
+      return `Room ${this.roomCode} ready — waiting for players (2-4P)...`;
+    }
+    const labels = slots.map((s) => `${s + 1}P`).join(', ');
+    return `${1 + slots.length}P Connected (1P Host + ${labels}) in Room ${this.roomCode}`;
   }
 
   async hostRoom(customCode = null) {
     this.disconnect(false);
     const nonce = ++this._sessionNonce;
     this.role = NET_ROLE.HOST;
+    this.localPlayerIndex = 0;
     this.roomCode = (customCode || generateRoomCode(4)).toUpperCase().replace(/[^A-Z0-9]/g, '');
     this._subTopic = `${TOPIC_PREFIX}/${this.roomCode}/g2h`;
     this._pubTopic = `${TOPIC_PREFIX}/${this.roomCode}/h2g`;
@@ -169,6 +200,7 @@ export class NetworkManager {
     this.disconnect(false);
     const nonce = ++this._sessionNonce;
     this.role = NET_ROLE.GUEST;
+    this.localPlayerIndex = 1;
     this.roomCode = cleanCode;
     this._subTopic = `${TOPIC_PREFIX}/${cleanCode}/h2g`;
     this._pubTopic = `${TOPIC_PREFIX}/${cleanCode}/g2h`;
@@ -211,7 +243,8 @@ export class NetworkManager {
         }
 
         if (this.isHost()) {
-          this._setStatus('waiting', `Room ${this.roomCode} ready — waiting for Player 2...`);
+          this._startHeartbeat();
+          this._setStatus('waiting', this._formatHostRosterMessage());
         } else {
           this._setStatus('connecting', `Joining room ${this.roomCode}...`);
           this._startGuestHello(nonce);
@@ -254,8 +287,8 @@ export class NetworkManager {
         this._connectBroker(nonce, brokerIdx + 1).catch(() => {});
         return;
       }
-      if (this._peerConnected) {
-        this._handlePeerLost();
+      if (this.isGuest() && this._peerConnected) {
+        this._handleGuestDisconnected();
       }
     });
   }
@@ -279,66 +312,127 @@ export class NetworkManager {
     }, 10000);
   }
 
+  _allocateGuestSlot() {
+    const used = new Set();
+    for (const g of this._guests.values()) used.add(g.slot);
+    for (let s = 1; s < MAX_LAN_PLAYERS; s++) {
+      if (!used.has(s)) return s;
+    }
+    return -1;
+  }
+
   _handleIncoming(msg) {
-    this._lastPeerRx = performance.now();
+    const now = performance.now();
 
     if (this.isHost()) {
+      const sender = msg.from || '';
+
       if (msg.type === 'hello') {
-        const sender = msg.from || 'guest';
-        if (this._peerConnected && this._guestId && this._guestId !== sender) {
-          this._publishRaw({ type: 'full', to: sender });
-          return;
+        let entry = this._guests.get(sender);
+        const isNew = !entry;
+        if (!entry) {
+          const slot = this._allocateGuestSlot();
+          if (slot < 0) {
+            this._publishRaw({ type: 'full', to: sender });
+            return;
+          }
+          entry = { slot, lastSeen: now };
+          this._guests.set(sender, entry);
+        } else {
+          entry.lastSeen = now;
         }
-        this._guestId = sender;
-        const wasConnected = this._peerConnected;
-        this._peerConnected = true;
-        this._publishRaw({ type: 'welcome', to: sender });
-        if (!wasConnected) {
-          this.pingMs = null;
-          this._startHeartbeat();
-          this._setStatus('connected', `Player 2 joined Room ${this.roomCode}!`);
-          if (this.callbacks.onPeerConnected) this.callbacks.onPeerConnected();
+
+        this._publishRaw({
+          type: 'welcome',
+          to: sender,
+          slot: entry.slot,
+          totalPlayers: this.getConnectedTotalPlayers(),
+        });
+
+        this._setStatus('connected', this._formatHostRosterMessage());
+        if (isNew && this.callbacks.onPeerConnected) {
+          this.callbacks.onPeerConnected(entry.slot);
         }
         return;
       }
+
+      if (sender && this._guests.has(sender)) {
+        this._guests.get(sender).lastSeen = now;
+      }
+
       if (msg.type === 'bye') {
-        if (this._peerConnected && (!this._guestId || msg.from === this._guestId)) {
-          this._handlePeerLost();
+        const entry = this._guests.get(sender);
+        if (entry) {
+          const leftSlot = entry.slot;
+          this._guests.delete(sender);
+          this._setStatus(
+            this._guests.size > 0 ? 'connected' : 'waiting',
+            this._formatHostRosterMessage()
+          );
+          if (this.callbacks.onPeerDisconnected) {
+            this.callbacks.onPeerDisconnected(leftSlot);
+          }
         }
         return;
       }
-    } else if (this.isGuest()) {
-      if (msg.type === 'welcome' && (!msg.to || msg.to === this._clientId)) {
-        if (!this._peerConnected) {
-          this._clearTimers();
-          this._peerConnected = true;
-          this.pingMs = null;
-          this._startHeartbeat();
-          this._setStatus('connected', `Connected to Host (${this.roomCode})!`);
-          if (this.callbacks.onPeerConnected) this.callbacks.onPeerConnected();
-        }
+
+      if (msg.type === 'gping') {
+        this._publishRaw({ type: 'gpong', to: sender, t: msg.t });
         return;
       }
-      if (msg.type === 'full' && (!msg.to || msg.to === this._clientId)) {
+      if (msg.type === 'pong') {
+        this.pingMs = Math.max(1, Math.round(now - msg.t));
+        this._setStatus(this.status, this.statusMessage);
+        return;
+      }
+
+      const guest = this._guests.get(sender);
+      if (guest && this.callbacks.onMessage) {
+        this.callbacks.onMessage({ ...msg, slot: guest.slot });
+      }
+      return;
+    }
+
+    // Guest incoming handling
+    this._lastHostRx = now;
+
+    if (msg.type === 'welcome' && (!msg.to || msg.to === this._clientId)) {
+      this.localPlayerIndex = typeof msg.slot === 'number' ? msg.slot : 1;
+      if (!this._peerConnected) {
         this._clearTimers();
-        this._setStatus('error', 'Room is already full.');
-        this.disconnect(false);
-        return;
-      }
-      if (msg.type === 'bye') {
-        if (this._peerConnected) {
-          this._handlePeerLost();
+        this._peerConnected = true;
+        this.pingMs = null;
+        this._startHeartbeat();
+        this._setStatus(
+          'connected',
+          `Connected as ${this.localPlayerIndex + 1}P in Room ${this.roomCode}!`
+        );
+        if (this.callbacks.onPeerConnected) {
+          this.callbacks.onPeerConnected(this.localPlayerIndex);
         }
-        return;
       }
+      return;
+    }
+
+    if (msg.type === 'full' && (!msg.to || msg.to === this._clientId)) {
+      this._clearTimers();
+      this._setStatus('error', 'Room is already full (max 4 players).');
+      this.disconnect(false);
+      return;
+    }
+
+    if (msg.type === 'bye') {
+      if (this._peerConnected) this._handleGuestDisconnected();
+      return;
     }
 
     if (msg.type === 'ping') {
-      this._publishRaw({ type: 'pong', t: msg.t });
+      this._publishRaw({ type: 'pong', from: this._clientId, t: msg.t });
       return;
     }
-    if (msg.type === 'pong') {
-      this.pingMs = Math.max(1, Math.round(performance.now() - msg.t));
+
+    if (msg.type === 'gpong' && (!msg.to || msg.to === this._clientId)) {
+      this.pingMs = Math.max(1, Math.round(now - msg.t));
       this._setStatus(this.status, this.statusMessage);
       return;
     }
@@ -350,31 +444,54 @@ export class NetworkManager {
 
   _startHeartbeat() {
     if (this._pingTimer) clearInterval(this._pingTimer);
-    this._lastPeerRx = performance.now();
+    this._lastHostRx = performance.now();
+
     const tick = () => {
-      if (!this.isConnected()) return;
-      if (performance.now() - this._lastPeerRx > 10000) {
-        this._handlePeerLost();
-        return;
+      if (!this._client || !this._client.connected) return;
+      const now = performance.now();
+
+      if (this.isHost()) {
+        // Evict stale guests that haven't responded in 10s
+        let removedAny = false;
+        for (const [id, entry] of this._guests.entries()) {
+          if (now - entry.lastSeen > 10000) {
+            this._guests.delete(id);
+            removedAny = true;
+            if (this.callbacks.onPeerDisconnected) {
+              this.callbacks.onPeerDisconnected(entry.slot);
+            }
+          }
+        }
+        if (removedAny) {
+          if (this._guests.size === 0) this.pingMs = null;
+          this._setStatus(
+            this._guests.size > 0 ? 'connected' : 'waiting',
+            this._formatHostRosterMessage()
+          );
+        }
+        if (this._guests.size > 0) {
+          this._publishRaw({ type: 'ping', t: now });
+        }
+      } else if (this.isGuest() && this._peerConnected) {
+        if (now - this._lastHostRx > 10000) {
+          this._handleGuestDisconnected();
+          return;
+        }
+        this._publishRaw({ type: 'gping', from: this._clientId, t: now });
       }
-      this._publishRaw({ type: 'ping', t: performance.now() });
     };
+
     tick();
     this._pingTimer = setInterval(tick, 2000);
   }
 
-  _handlePeerLost() {
+  _handleGuestDisconnected() {
     this._clearTimers();
     this._peerConnected = false;
-    this._guestId = null;
     this.pingMs = null;
-    if (this.isHost()) {
-      this._setStatus('waiting', `Player 2 disconnected. Room ${this.roomCode} still open...`);
-    } else if (this.isGuest()) {
-      this._setStatus('error', 'Disconnected from Host.');
-    }
+    this._setStatus('error', 'Disconnected from Host.');
     if (this.callbacks.onPeerDisconnected) {
-      this.callbacks.onPeerDisconnected();
+      this.callbacks.onPeerDisconnected(this.localPlayerIndex);
     }
   }
 
@@ -395,7 +512,10 @@ export class NetworkManager {
   }
 
   send(payload) {
-    if (this.isConnected()) {
+    if (!this.isConnected()) return;
+    if (this.isGuest()) {
+      this._publishRaw({ ...payload, from: this._clientId, slot: this.localPlayerIndex });
+    } else {
       this._publishRaw(payload);
     }
   }
@@ -404,15 +524,16 @@ export class NetworkManager {
     this._sessionNonce++;
     this._clearTimers();
     if (this._client) {
-      if (this._peerConnected) {
-        this._publishRaw({ type: 'bye', from: this._clientId });
+      if (this.isConnected()) {
+        this._publishRaw({ type: 'bye', from: this._clientId, slot: this.localPlayerIndex });
       }
       try { this._client.end(true); } catch {}
       this._client = null;
     }
     this._peerConnected = false;
-    this._guestId = null;
+    this._guests.clear();
     this.role = NET_ROLE.LOCAL;
+    this.localPlayerIndex = 0;
     this.roomCode = '';
     this.pingMs = null;
     if (notify) {

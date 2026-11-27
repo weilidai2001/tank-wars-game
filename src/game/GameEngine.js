@@ -75,9 +75,11 @@ export class GameEngine {
       },
     });
 
-    // Peer-to-Peer LAN / Online Multiplayer Subsystem (Additive)
+    // 2-4P LAN / Online Multiplayer Subsystem (Additive)
     this.networkMode = false;
-    this.remoteInput = { throttle: 0, turn: 0, fire: false, action: false };
+    this.remoteInputs = Array.from({ length: 4 }, () => ({
+      throttle: 0, turn: 0, fire: false, action: false,
+    }));
     this._pendingCellDeltas = [];
     this._pendingNetEvents = [];
     this._netSendAccum = 0;
@@ -100,8 +102,10 @@ export class GameEngine {
           }
         }
       },
-      onPeerDisconnected: () => {
-        this.remoteInput = { throttle: 0, turn: 0, fire: false, action: false };
+      onPeerDisconnected: (slot) => {
+        if (typeof slot === 'number' && this.remoteInputs[slot]) {
+          this.remoteInputs[slot] = { throttle: 0, turn: 0, fire: false, action: false };
+        }
         if (this.network.isGuest() && this.state !== 'MENU') {
           this.openMenu();
         }
@@ -208,8 +212,9 @@ export class GameEngine {
     if (this.network.isHost() && this.players.length >= 1) {
       return [this.players[0]];
     }
-    if (this.network.isGuest() && this.players.length >= 2) {
-      return [this.players[1]];
+    if (this.network.isGuest() && this.players.length >= 1) {
+      const idx = this.network.localPlayerIndex;
+      return this.players[idx] ? [this.players[idx]] : [this.players[0]];
     }
     // In 1P + AI Wingman mode, only 1P gets a full viewport while P2 AI fights alongside!
     if (this.aiWingman && this.mode === GAME_MODE.COOP) {
@@ -222,7 +227,7 @@ export class GameEngine {
     if (this.network.isHost()) {
       if (playerIndex === 0) this.input.triggerRumble(0, durationMs, strong, weak);
     } else if (this.network.isGuest()) {
-      if (playerIndex === 1) this.input.triggerRumble(0, durationMs, strong, weak);
+      if (playerIndex === this.network.localPlayerIndex) this.input.triggerRumble(0, durationMs, strong, weak);
     } else {
       this.input.triggerRumble(playerIndex, durationMs, strong, weak);
     }
@@ -344,9 +349,14 @@ export class GameEngine {
     this.clearEntities();
 
     const isNetHost = this.network.isHost();
-    const totalPlayers = isNetHost
-      ? 2
-      : (this.mode === GAME_MODE.COOP && this.aiWingman) ? 2 : this.playerCount;
+    let totalPlayers;
+    if (isNetHost) {
+      const slots = this.network.getConnectedGuestSlots();
+      const maxSlot = slots.length > 0 ? Math.max(...slots) : 1;
+      totalPlayers = Math.max(2, Math.min(4, maxSlot + 1));
+    } else {
+      totalPlayers = (this.mode === GAME_MODE.COOP && this.aiWingman) ? 2 : this.playerCount;
+    }
     const preset = this.cameraSystem.getPreset();
 
     for (let i = 0; i < totalPlayers; i++) {
@@ -826,14 +836,12 @@ export class GameEngine {
     if (p.reloadTimer > 0) p.reloadTimer = Math.max(0, p.reloadTimer - dt);
 
     let cmd;
-    if (this.network.isHost() && p.index === 1) {
-      cmd = {
-        throttle: this.remoteInput.throttle,
-        turn: this.remoteInput.turn,
-        fire: this.remoteInput.fire,
-        action: this.remoteInput.action,
-      };
-      this.remoteInput.action = false;
+    if (this.network.isHost() && p.index > 0) {
+      const ri = this.remoteInputs[p.index];
+      cmd = ri
+        ? { throttle: ri.throttle, turn: ri.turn, fire: ri.fire, action: ri.action }
+        : { throttle: 0, turn: 0, fire: false, action: false };
+      if (ri) ri.action = false;
     } else if (p.isAIControlled) {
       cmd = this.ai.computeWingmanCommand(p, this.enemies, this.powerups.crates, dt);
     } else {
@@ -937,7 +945,7 @@ export class GameEngine {
       mode: this.mode,
       selectedStage: this.selectedStage,
       versusBotCount: this.versusBotCount,
-      playerNations: this.playerNations.slice(0, 2),
+      playerNations: this.playerNations.slice(0, 4),
     });
   }
 
@@ -988,21 +996,24 @@ export class GameEngine {
     this.bus.on(EVENTS.STAGE_CLEARED, ({ stage }) => queue(EVENTS.STAGE_CLEARED, { stage }));
     this.bus.on(EVENTS.GAME_OVER, ({ isVictory }) => queue(EVENTS.GAME_OVER, { isVictory }));
     this.bus.on(EVENTS.LOCK_ACQUIRED, ({ tank }) => {
-      if (tank && tank.isPlayer && tank.index === 1) {
-        queue(EVENTS.LOCK_ACQUIRED, {});
+      if (tank && tank.isPlayer && tank.index > 0) {
+        queue(EVENTS.LOCK_ACQUIRED, { playerIdx: tank.index });
       }
     });
   }
 
   _handleNetworkMessage(msg) {
     if (this.network.isHost()) {
-      if (msg.type === 'input' && msg.cmd) {
-        this.remoteInput.throttle = Number(msg.cmd.throttle) || 0;
-        this.remoteInput.turn = Number(msg.cmd.turn) || 0;
-        this.remoteInput.fire = Boolean(msg.cmd.fire);
-        if (msg.cmd.action) this.remoteInput.action = true;
-      } else if (msg.type === 'guest_nation' && msg.nation) {
-        this.playerNations[1] = msg.nation;
+      const slot = typeof msg.slot === 'number' ? msg.slot : 1;
+      if (msg.type === 'input' && msg.cmd && this.remoteInputs[slot]) {
+        const ri = this.remoteInputs[slot];
+        ri.throttle = Number(msg.cmd.throttle) || 0;
+        ri.turn = Number(msg.cmd.turn) || 0;
+        ri.fire = Boolean(msg.cmd.fire);
+        if (msg.cmd.action) ri.action = true;
+      } else if (msg.type === 'guest_nation' && msg.nation && slot >= 1 && slot < 4) {
+        this.playerNations[slot] = msg.nation;
+        this.syncLobbyToGuest();
         if (this.onRemoteLobbyUpdated) this.onRemoteLobbyUpdated();
       } else if (msg.type === 'toggle_pause' && this.state === 'PLAYING') {
         this.togglePause();
@@ -1016,8 +1027,9 @@ export class GameEngine {
         this.selectedStage = msg.selectedStage || 1;
         this.versusBotCount = msg.versusBotCount ?? 2;
         if (Array.isArray(msg.playerNations)) {
-          this.playerNations[0] = msg.playerNations[0] || this.playerNations[0];
-          this.playerNations[1] = msg.playerNations[1] || this.playerNations[1];
+          for (let i = 0; i < Math.min(4, msg.playerNations.length); i++) {
+            if (msg.playerNations[i]) this.playerNations[i] = msg.playerNations[i];
+          }
         }
         if (this.state === 'MENU') {
           this.loadMenuPreviewArena();
@@ -1041,7 +1053,8 @@ export class GameEngine {
       mode: this.mode,
       stage: this.stage,
       isFreshMatch,
-      playerNations: this.playerNations.slice(0, 2),
+      totalPlayers: this.players.length || this.network.getPlayerCount(),
+      playerNations: this.playerNations.slice(0, 4),
       versusBotCount: this.versusBotCount,
       eagleAlive: this.eagleAlive,
     };
@@ -1055,7 +1068,7 @@ export class GameEngine {
 
   _tickHostNetwork(dt) {
     this._netSendAccum += dt;
-    if (this._netSendAccum >= 1 / 20) {
+    if (this._netSendAccum >= 1 / 30) {
       this._netSendAccum = 0;
       this._sendHostSnapshot();
     }
@@ -1085,7 +1098,12 @@ export class GameEngine {
       e.hp, e.maxHp, e.frags, r2(e.shieldTimer), e.alive ? 1 : 0,
     ]);
 
-    const sh = this.combat.shells.map((s) => [s.id, r2(s.x), r2(s.z), r3(s.yaw), s.colorHex]);
+    const sh = this.combat.shells.map((s) => [
+      s.id, r2(s.x), r2(s.z), r3(s.yaw),
+      Math.round((s.vx || 0) * 10) / 10,
+      Math.round((s.vz || 0) * 10) / 10,
+      s.colorHex,
+    ]);
     const cr = this.powerups.crates.map((c) => [c.id, c.type, r2(c.x), r2(c.z), r2(c.life), c.maxLife]);
 
     const snap = {
@@ -1123,10 +1141,12 @@ export class GameEngine {
     this.selectedStage = this.stage;
     this.versusBotCount = msg.versusBotCount ?? 2;
     if (Array.isArray(msg.playerNations)) {
-      this.playerNations[0] = msg.playerNations[0] || this.playerNations[0];
-      this.playerNations[1] = msg.playerNations[1] || this.playerNations[1];
+      for (let i = 0; i < Math.min(4, msg.playerNations.length); i++) {
+        if (msg.playerNations[i]) this.playerNations[i] = msg.playerNations[i];
+      }
     }
 
+    const totalPlayers = Math.max(2, Math.min(4, msg.totalPlayers || 2));
     this.paused = false;
     this.isVictory = false;
     this.victoryBanner = '';
@@ -1135,7 +1155,7 @@ export class GameEngine {
     this.eagleAlive = msg.eagleAlive !== undefined ? Boolean(msg.eagleAlive) : true;
     this._guestPrevEagleAlive = this.eagleAlive;
 
-    // Clear enemies, shells, crates, effects, popups (rebuild players on fresh match or if missing)
+    // Clear enemies, shells, crates, effects, popups (rebuild players on fresh match or count change)
     for (const e of this.enemies) {
       if (e.rig) this.sceneManager.scene.remove(e.rig.root);
     }
@@ -1145,14 +1165,14 @@ export class GameEngine {
     this.effects.clear();
     this.popups.length = 0;
 
-    if (msg.isFreshMatch || this.players.length !== 2) {
+    if (msg.isFreshMatch || this.players.length !== totalPlayers) {
       for (const p of this.players) {
         if (p.rig) this.sceneManager.scene.remove(p.rig.root);
       }
       this.players.length = 0;
 
       const preset = this.cameraSystem.getPreset();
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < totalPlayers; i++) {
         const cfg = PLAYER_CONFIGS[i];
         const nationId = this.playerNations[i] || cfg.defaultNation;
         const spec = getPlayerVehicleSpec(nationId, 0);
@@ -1301,7 +1321,10 @@ export class GameEngine {
           this._setPlayerTier(p, weaponTier);
         }
 
-        const isFirst = !p._netTarget || Math.hypot(x - p.x, z - p.z) > 6.0;
+        const isLocalGuest = i === this.network.localPlayerIndex;
+        const distErr = Math.hypot(x - p.x, z - p.z);
+        const snapThreshold = isLocalGuest ? 5.5 : 6.0;
+        const isFirst = !p._netTarget || distErr > snapThreshold;
         p._netTarget = { x, z, yaw, turretOffset };
         if (isFirst) {
           p.x = x;
@@ -1309,8 +1332,10 @@ export class GameEngine {
           p.yaw = yaw;
           p.turretOffset = turretOffset;
         }
-        p.speed = speed;
-        p.actualSpeed = actualSpeed;
+        if (!isLocalGuest || !p.alive) {
+          p.speed = speed;
+          p.actualSpeed = actualSpeed;
+        }
         p.recoil = recoil;
         p.muzzleTimer = muzzleTimer;
         p.hp = hp;
@@ -1412,10 +1437,27 @@ export class GameEngine {
       p.obstructedTarget = p._obstructedId ? (entityById.get(p._obstructedId) || null) : null;
     }
 
-    // Sync shells & powerup crates
-    this._guestShells = Array.isArray(msg.sh)
-      ? msg.sh.map(([id, x, z, yaw, colorHex]) => ({ id, x, z, yaw, colorHex }))
-      : [];
+    // Sync shells with smooth reconciliation (extrapolated at 60 FPS in _updateGuest!)
+    const prevShellById = new Map(this._guestShells.map((s) => [s.id, s]));
+    const nextShells = [];
+    if (Array.isArray(msg.sh)) {
+      for (const entry of msg.sh) {
+        const [id, x, z, yaw, vx, vz, colorHex] = entry;
+        const prev = prevShellById.get(id);
+        if (prev && Math.hypot(x - prev.x, z - prev.z) < 3.2) {
+          prev.x += (x - prev.x) * 0.45;
+          prev.z += (z - prev.z) * 0.45;
+          prev.yaw = yaw;
+          prev.vx = vx;
+          prev.vz = vz;
+          prev.colorHex = colorHex;
+          nextShells.push(prev);
+        } else {
+          nextShells.push({ id, x, z, yaw, vx, vz, colorHex });
+        }
+      }
+    }
+    this._guestShells = nextShells;
     this.powerups.crates = Array.isArray(msg.cr)
       ? msg.cr.map(([id, type, x, z, life, maxLife]) => ({ id, type, x, z, life, maxLife }))
       : [];
@@ -1428,7 +1470,12 @@ export class GameEngine {
 
   _applyRemoteEvents(events) {
     for (const [ev, data] of events) {
-      if (ev === EVENTS.TANK_FIRED) {
+      if (ev === EVENTS.LOCK_ACQUIRED) {
+        if (data && data.playerIdx !== undefined && data.playerIdx !== this.network.localPlayerIndex) {
+          continue;
+        }
+        this.bus.emit(EVENTS.LOCK_ACQUIRED, data);
+      } else if (ev === EVENTS.TANK_FIRED) {
         this.bus.emit(EVENTS.TANK_FIRED, {
           tank: {
             isPlayer: data.isPlayer,
@@ -1471,10 +1518,13 @@ export class GameEngine {
       if (this.popups[i].life >= this.popups[i].maxLife) this.popups.splice(i, 1);
     }
 
-    // Read Guest local controls using full-screen Primary (Arrow keys + Mouse + Gamepad 0)
-    const p2 = this.players[1];
-    if (p2 && this.network.isConnected() && this.state === 'PLAYING' && !this.paused) {
-      const cmd = this.input.readPlayerCommand(p2, true);
+    const localIdx = this.network.localPlayerIndex;
+    const localP = this.players[localIdx] || this.players[0];
+    const allTanks = this.getAllTanks();
+
+    // 1. Read Guest local controls (Arrow keys + Mouse + Gamepad 0) & predict own tank at 60 FPS
+    if (localP && this.network.isConnected() && this.state === 'PLAYING' && !this.paused) {
+      const cmd = this.input.readPlayerCommand(localP, true);
       if (cmd.action) this._guestActionLatch = true;
 
       this._netSendAccum += dt;
@@ -1493,35 +1543,70 @@ export class GameEngine {
         });
         this._guestActionLatch = false;
       }
+
+      // Client-side movement prediction for zero-latency Arrow-key responsiveness
+      if (localP.alive) {
+        this.movement.updateTank(localP, cmd, allTanks, dt, this.elapsed);
+      }
     }
 
-    // Smoothly interpolate tanks toward latest Host snapshot
-    const lerpT = Math.min(1, dt * 18);
-    for (const p of this.players) {
+    // 2. Smoothly reconcile local tank & dead-reckon remote tanks at 60 FPS
+    const remoteLerp = Math.min(1, dt * 16);
+    const localReconcile = Math.min(1, dt * 7.5);
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
       if (p._netTarget) {
-        p.x += (p._netTarget.x - p.x) * lerpT;
-        p.z += (p._netTarget.z - p.z) * lerpT;
-        p.yaw = lerpAngle(p.yaw, p._netTarget.yaw, lerpT);
-        p.turretOffset = lerpAngle(p.turretOffset, p._netTarget.turretOffset, lerpT);
+        if (i === localIdx && p.alive && this.state === 'PLAYING' && !this.paused) {
+          // Gentle authoritative reconciliation toward Host pose
+          const err = Math.hypot(p._netTarget.x - p.x, p._netTarget.z - p.z);
+          if (err > 0.14) {
+            p.x += (p._netTarget.x - p.x) * localReconcile;
+            p.z += (p._netTarget.z - p.z) * localReconcile;
+          }
+          p.yaw = lerpAngle(p.yaw, p._netTarget.yaw, localReconcile);
+          p.turretOffset = lerpAngle(p.turretOffset, p._netTarget.turretOffset, remoteLerp);
+        } else {
+          if (!this.paused && p.alive && Math.abs(p.actualSpeed) > 0.2) {
+            p.x += -Math.sin(p.yaw) * p.actualSpeed * dt * 0.5;
+            p.z += -Math.cos(p.yaw) * p.actualSpeed * dt * 0.5;
+          }
+          p.x += (p._netTarget.x - p.x) * remoteLerp;
+          p.z += (p._netTarget.z - p.z) * remoteLerp;
+          p.yaw = lerpAngle(p.yaw, p._netTarget.yaw, remoteLerp);
+          p.turretOffset = lerpAngle(p.turretOffset, p._netTarget.turretOffset, remoteLerp);
+        }
       }
       this.tankBuilder.syncRig(p, dt);
     }
-    if (p2) {
-      this.cameraSystem.updatePlayerCamera(p2, dt);
+
+    if (localP) {
+      this.cameraSystem.updatePlayerCamera(localP, dt);
     }
 
     for (const e of this.enemies) {
       if (e._netTarget) {
-        e.x += (e._netTarget.x - e.x) * lerpT;
-        e.z += (e._netTarget.z - e.z) * lerpT;
-        e.yaw = lerpAngle(e.yaw, e._netTarget.yaw, lerpT);
-        e.turretOffset = lerpAngle(e.turretOffset, e._netTarget.turretOffset, lerpT);
+        if (!this.paused && e.alive && Math.abs(e.actualSpeed) > 0.2) {
+          e.x += -Math.sin(e.yaw) * e.actualSpeed * dt * 0.5;
+          e.z += -Math.cos(e.yaw) * e.actualSpeed * dt * 0.5;
+        }
+        e.x += (e._netTarget.x - e.x) * remoteLerp;
+        e.z += (e._netTarget.z - e.z) * remoteLerp;
+        e.yaw = lerpAngle(e.yaw, e._netTarget.yaw, remoteLerp);
+        e.turretOffset = lerpAngle(e.turretOffset, e._netTarget.turretOffset, remoteLerp);
       }
       if (e.isBonus && e.rig) {
         const flash = Math.floor(this.elapsed * 7) % 2 === 0;
         e.rig.hullMat.color.setHex(flash ? 0xf43f5e : 0xfacc15);
       }
       this.tankBuilder.syncRig(e, dt);
+    }
+
+    // 3. Extrapolate shells at 60 FPS between Host snapshots for butter-smooth bullet travel
+    if (!this.paused) {
+      for (const s of this._guestShells) {
+        s.x += (s.vx || 0) * dt;
+        s.z += (s.vz || 0) * dt;
+      }
     }
 
     this.effects.syncShells(this._guestShells);

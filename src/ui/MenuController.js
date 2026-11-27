@@ -133,11 +133,16 @@ export class MenuController {
 
     document.querySelectorAll('[data-p2-nation]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.game.playerNations[1] = btn.dataset.p2Nation;
-        this.syncMenuUI();
-        if (this.game.network.isGuest() && this.game.network.isConnected()) {
-          this.game.network.send({ type: 'guest_nation', nation: this.game.playerNations[1] });
+        if (this.game.network.isGuest()) {
+          const slot = this.game.network.localPlayerIndex || 1;
+          this.game.playerNations[slot] = btn.dataset.p2Nation;
+          this.syncMenuUI();
+          if (this.game.network.isConnected()) {
+            this.game.network.send({ type: 'guest_nation', nation: this.game.playerNations[slot] });
+          }
         } else {
+          this.game.playerNations[1] = btn.dataset.p2Nation;
+          this.syncMenuUI();
           this.game.syncLobbyToGuest();
         }
       });
@@ -275,8 +280,9 @@ export class MenuController {
       b.classList.toggle('active', active);
       b.setAttribute('aria-pressed', String(active));
     });
+    const guestSlot = this.game.network.isGuest() ? (this.game.network.localPlayerIndex || 1) : 1;
     document.querySelectorAll('[data-p2-nation]').forEach((b) => {
-      const active = b.dataset.p2Nation === this.game.playerNations[1];
+      const active = b.dataset.p2Nation === this.game.playerNations[guestSlot];
       b.classList.toggle('active', active);
       b.setAttribute('aria-pressed', String(active));
     });
@@ -327,7 +333,7 @@ export class MenuController {
       } else if (net.statusMessage) {
         statusText.textContent = `⏳ ${net.statusMessage}`;
       } else {
-        statusText.textContent = 'Click Host Room on PC 1, then enter the code (or open the invite link) on PC 2.';
+        statusText.textContent = 'Click Host Room on PC 1, then enter the code (or open the invite link) on PCs 2-4.';
       }
     }
 
@@ -336,14 +342,15 @@ export class MenuController {
         btnLaunch.disabled = false;
         btnLaunch.textContent = 'DEPLOY TO BATTLEFIELD ▶';
       } else if (net.isHost() && net.isConnected()) {
+        const count = net.getConnectedTotalPlayers();
         btnLaunch.disabled = false;
-        btnLaunch.textContent = 'DEPLOY 2P LAN MATCH ▶';
+        btnLaunch.textContent = `DEPLOY ${count}P LAN MATCH ▶`;
       } else if (net.isHost()) {
         btnLaunch.disabled = true;
-        btnLaunch.textContent = `WAITING FOR PLAYER 2 (ROOM ${net.roomCode || '...'})`;
+        btnLaunch.textContent = `WAITING FOR PLAYERS (ROOM ${net.roomCode || '...'})`;
       } else if (net.isGuest() && net.isConnected()) {
         btnLaunch.disabled = true;
-        btnLaunch.textContent = 'CONNECTED · WAITING FOR HOST TO DEPLOY...';
+        btnLaunch.textContent = `CONNECTED AS ${net.localPlayerIndex + 1}P · WAITING FOR HOST...`;
       } else {
         btnLaunch.disabled = true;
         btnLaunch.textContent = 'HOST OR JOIN A ROOM ABOVE TO DEPLOY';
@@ -354,7 +361,9 @@ export class MenuController {
       if (net.isNetworked()) {
         btnNetBadge.hidden = false;
         const ping = net.pingMs !== null ? ` · ${net.pingMs}ms` : '';
-        const roleTag = net.isHost() ? 'HOST' : 'GUEST';
+        const roleTag = net.isHost()
+          ? `1P HOST (${net.getConnectedTotalPlayers()}P)`
+          : `${net.localPlayerIndex + 1}P GUEST`;
         btnNetBadge.textContent = net.isConnected()
           ? `🌐 ${roleTag} · ${net.roomCode}${ping}`
           : `🌐 ${roleTag} · ${net.roomCode || '...'}`;

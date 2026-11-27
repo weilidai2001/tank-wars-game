@@ -191,15 +191,17 @@ export class HudRenderer {
       this._renderStatusCard(ctx, game, p, vp.x + 12, vp.y + 12, cardW, cardH, compact, 0.72);
     }
 
-    // Show compact partner/rival status card when in 1P+AI or full-screen LAN/Online mode
+    // Show compact partner/rival status cards when in 1P+AI or full-screen LAN/Online (2-4P) mode
     if (game.players.length > 1 && game.showStatusCards) {
       if (game.aiWingman && p.index === 0) {
         const wingman = game.players[1];
         this._renderStatusCard(ctx, game, wingman, vp.x + 12, vp.y + 92, 194, 58, true, 0.6);
       } else if (game.network && game.network.isNetworked()) {
-        const other = game.players[p.index === 0 ? 1 : 0];
-        if (other) {
-          this._renderStatusCard(ctx, game, other, vp.x + 12, vp.y + 92, 194, 58, true, 0.6);
+        let offsetY = vp.y + 92;
+        for (const other of game.players) {
+          if (other === p) continue;
+          this._renderStatusCard(ctx, game, other, vp.x + 12, offsetY, 194, 56, true, 0.58);
+          offsetY += 62;
         }
       }
     }
