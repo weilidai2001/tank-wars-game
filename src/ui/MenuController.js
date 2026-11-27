@@ -1,6 +1,19 @@
 import { GAME_MODE, APP_VERSION } from '../config/constants.js';
 import { ARENA_TEMPLATES } from '../config/arenas.js';
 
+// Icon and label live in separate spans so the touch layout can collapse the toolbar to icons
+// (the label stays in the accessible name). On desktop the button text is unchanged.
+function setToolbarLabel(el, icon, label) {
+  const iconEl = document.createElement('span');
+  iconEl.className = 'tb-icon';
+  iconEl.setAttribute('aria-hidden', 'true');
+  iconEl.textContent = icon;
+  const labelEl = document.createElement('span');
+  labelEl.className = 'tb-label';
+  labelEl.textContent = ` ${label}`;
+  el.replaceChildren(iconEl, labelEl);
+}
+
 /**
  * DOM Menu & Toolbar UI Controller (Single Responsibility Principle).
  * Owns all DOM event listeners and keeps `aria-pressed` / visual states synced
@@ -376,19 +389,17 @@ export class MenuController {
 
   syncHeaderButtons() {
     const preset = this.game.cameraSystem.getPreset();
-    document.getElementById('btn-camera').textContent = `🎥 ${preset.name} (V)`;
-    document.getElementById('btn-gps').textContent = this.game.gpsHeadingUp
-      ? '🧭 GPS: Heading-Up (Tab)'
-      : '🧭 GPS: North-Up (Tab)';
-    document.getElementById('btn-hud').textContent = this.game.showStatusCards
-      ? '📋 HUD: On (H)'
-      : '📋 HUD: Off (H)';
-    document.getElementById('btn-mute').textContent = this.game.sound.muted
-      ? '🔇 Muted (M)'
-      : '🔊 Sound (M)';
-    document.getElementById('btn-pause').textContent = this.game.paused
-      ? '▶ Resume (P)'
-      : '⏸ Pause (P)';
+    setToolbarLabel(document.getElementById('btn-camera'), '🎥', `${preset.name} (V)`);
+    setToolbarLabel(
+      document.getElementById('btn-gps'), '🧭',
+      this.game.gpsHeadingUp ? 'GPS: Heading-Up (Tab)' : 'GPS: North-Up (Tab)'
+    );
+    setToolbarLabel(document.getElementById('btn-hud'), '📋', this.game.showStatusCards ? 'HUD: On (H)' : 'HUD: Off (H)');
+    const muted = this.game.sound.muted;
+    setToolbarLabel(document.getElementById('btn-mute'), muted ? '🔇' : '🔊', muted ? 'Muted (M)' : 'Sound (M)');
+    const paused = this.game.paused;
+    setToolbarLabel(document.getElementById('btn-pause'), paused ? '▶' : '⏸', paused ? 'Resume (P)' : 'Pause (P)');
+    setToolbarLabel(document.getElementById('btn-menu'), '🏠', 'Menu (Esc)');
   }
 
   updateGamepadStatusUI(pads, targetTag) {
@@ -396,11 +407,11 @@ export class MenuController {
     const menuHint = document.getElementById('menu-joy-status');
     if (btnJoy) {
       if (pads.length > 0) {
-        btnJoy.textContent = `🎮 ${pads.length}x Pad → ${targetTag}`;
+        setToolbarLabel(btnJoy, '🎮', `${pads.length}x Pad → ${targetTag}`);
         btnJoy.classList.add('connected');
         btnJoy.title = `Connected: ${pads.map((p) => p.id).join(', ')} (Click to switch 1P/2P)`;
       } else {
-        btnJoy.textContent = '🎮 Joystick: Press Button';
+        setToolbarLabel(btnJoy, '🎮', 'Joystick: Press Button');
         btnJoy.classList.remove('connected');
       }
     }

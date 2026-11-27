@@ -30,6 +30,7 @@ A 3D arcade armored-combat arena game playable solo, with an **AI Wingman**, or 
 - **12 Handcrafted 3D Combat Arenas** with unique atmosphere/lighting palettes, stepped-bank animated water canals, translucent multi-crown forests, and shimmering ice lanes.
 - **Toggleable Translucent HUD (`H`) & Live GPS Minimap (`Tab`)**: Per-player Sat-Nav radar (`Heading-Up` vs `North-Up`), vehicle telemetry cards, and a 4th-quadrant Satellite Command overview in 3-player mode.
 - **Keyboard + Mouse + USB/Bluetooth Gamepad Support**: Full HTML5 Gamepad API with analog deadzones, D-Pad, flight-stick POV hat, and dual-rumble haptics.
+- **iPhone & iPad Touch Controls**: Landscape on-screen analog joystick plus Fire and Grab buttons, with true multi-touch (steer, hold Fire and tap Grab at once). Works for solo play and for each guest's own tank in LAN / Online matches.
 
 ## Architecture (SOLID & Extensible)
 
@@ -56,7 +57,8 @@ src/
 │   ├── PowerupSystem.js        # Crate lifecycle & strategy dispatch
 │   └── CameraSystem.js         # Follow cameras, anti-clip raycast, Full Map Overview, Hor+ FOV
 ├── input/
-│   └── InputManager.js         # 4P Keyboard, P1 Mouse, & Gamepad/Haptics abstraction (ISP)
+│   ├── InputManager.js         # 4P Keyboard, P1 Mouse, Gamepad/Haptics & Touch abstraction (ISP)
+│   └── TouchControls.js        # iPhone/iPad on-screen joystick + Fire/Grab buttons (multi-touch)
 ├── render/
 │   ├── SceneManager.js         # WebGLRenderer, ACESFilmic lighting rig, split-screen & overview passes
 │   ├── MaterialLibrary.js      # Procedural PBR textures + bump maps (armor, steel, rubber, walls)
@@ -80,5 +82,8 @@ src/
 | **2P** | `W` `A` `S` `D` | `Space` / `F` | `E` / `Q` |
 | **3P** | `U` `H` `J` `K` | `I` | `O` / `Y` |
 | **4P** | `Numpad 8` `4` `5` `6` | `Numpad 0` | `Numpad Enter` |
+| **Touch (iPhone / iPad)** | Left-thumb joystick | **Fire** button (hold) | **Grab** button (hand) |
+
+**Touch (iPhone / iPad)**: Play in landscape; the joystick and buttons appear during a match (in portrait a rotate prompt covers the game and pauses local play). The joystick drives the 1P tank, or your own tank when you join a LAN / Online room from the device. Tap the 3D view to resume after a pause or to play again after Game Over, and use the 🏠 / ⏸ toolbar icons for Menu and Pause. For full-screen play, use Safari's **Share → Add to Home Screen**. Add `?touch=1` (or `?touch=0`) to the URL to force the touch controls on (or off), e.g. in a desktop browser's device emulation.
 
 **Global Shortcuts**: `V` Cycle Camera (`Behind Tank` / `Turret Sight` / `High Chase` / `Full Map View`) · `[` / `]` Pitch / Elevation · `,` / `.` Rotate Full Map Yaw · `Tab` Toggle GPS Mode · `H` Toggle Status Cards · `M` Mute · `P` Pause · `Esc` Menu.

@@ -7,14 +7,15 @@ const PREVENT_KEYS = new Set([
 
 /**
  * Unified InputManager (Interface Segregation + Single Responsibility).
- * Abstracts 4P Keyboard, P1 Mouse, and HTML5 Gamepad API (analog stick deadzones,
- * D-Pad, USB flight-stick POV hat, dual-rumble haptics) into a clean per-player
- * Command { throttle, turn, fire, action } interface.
+ * Abstracts 4P Keyboard, P1 Mouse, HTML5 Gamepad API (analog stick deadzones,
+ * D-Pad, USB flight-stick POV hat, dual-rumble haptics) and optional on-screen touch
+ * controls into a clean per-player Command { throttle, turn, fire, action } interface.
  */
 export class InputManager {
-  constructor(canvas, callbacks = {}) {
+  constructor(canvas, callbacks = {}, touch = null) {
     this.canvas = canvas;
     this.callbacks = callbacks;
+    this.touch = touch; // TouchControls (iPhone / iPad) or null
 
     this.keysDown = new Set();
     this.keysJustPressed = new Set();
@@ -93,11 +94,20 @@ export class InputManager {
     this.keysJustPressed.clear();
     this.mouseDown.clear();
     this.mouseJustPressed.clear();
+    if (this.touch) this.touch.reset();
   }
 
   endFrame() {
     this.keysJustPressed.clear();
     this.mouseJustPressed.clear();
+    if (this.touch) this.touch.endFrame();
+  }
+
+  /** Called once per frame: touch controls are shown only while a match is being played. */
+  syncTouchControls() {
+    if (this.touch) {
+      this.touch.setActive(this.callbacks.isPlaying ? this.callbacks.isPlaying() : true);
+    }
   }
 
   isAnyDown(codes) {
@@ -206,6 +216,15 @@ export class InputManager {
     if (usePrimaryControls || player.index === 0) {
       if (this.mouseDown.has(0) || this.mouseJustPressed.has(0)) fire = true;
       if (this.mouseJustPressed.has(2)) action = true;
+    }
+
+    // On-screen touch joystick & buttons drive the same primary player (P1 local, or LAN Guest)
+    if (this.touch && (usePrimaryControls || player.index === 0)) {
+      const t = this.touch.read();
+      if (t.throttle !== 0) throttle = t.throttle;
+      if (t.turn !== 0) turn = t.turn;
+      if (t.fire) fire = true;
+      if (t.action) action = true;
     }
 
     // Universal Gamepad / Flight-Stick support

@@ -33,6 +33,10 @@ html, body {
   grid-template-rows: auto 1fr;
   inline-size: 100%;
   block-size: 100dvh;
+  /* Keep the game clear of the notch / Dynamic Island and rounded corners (viewport-fit=cover).
+     The stage still runs to the bottom edge; touch controls & HUD lift above the home indicator. */
+  padding-block-start: env(safe-area-inset-top, 0px);
+  padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px);
 }
 
 .topbar {
@@ -499,4 +503,279 @@ kbd {
   border: 1px solid #475569;
   border-block-end-width: 2px;
   border-radius: 4px;
+}
+
+/* ==========================================================================
+   Touch Controls (iPhone / iPad, landscape). `html.touch-ui` is set by
+   src/input/TouchControls.js, so none of this applies on desktop.
+   ========================================================================== */
+.touch-controls,
+.rotate-overlay {
+  display: none;
+}
+
+html.touch-ui body {
+  position: fixed;
+  inset: 0;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html.touch-ui .menu-overlay {
+  touch-action: manipulation;
+}
+
+html.touch-ui :is(.topbar, .stage-wrap) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+html.touch-ui .lan-input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+html.touch-ui #gl-canvas {
+  touch-action: none;
+}
+
+/* Compact one-row toolbar: icons only, labels kept for screen readers */
+html.touch-ui .topbar {
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding-block: 4px;
+  padding-inline: 10px;
+}
+
+html.touch-ui .brand h1 {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+html.touch-ui .brand-sub {
+  display: none;
+}
+
+html.touch-ui .toolbar {
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-inline-size: 0;
+}
+
+html.touch-ui .toolbar button {
+  min-inline-size: 40px;
+  min-block-size: 34px;
+  padding-inline: 8px;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+html.touch-ui .toolbar button.net-badge {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-inline-size: 0;
+}
+
+html.touch-ui .tb-label {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Controls layer: covers the stage, only the stick zone & buttons take touches */
+html.touch-ui .touch-controls {
+  --stick-size: clamp(116px, 32vmin, 150px);
+  --fire-size: clamp(76px, 21vmin, 100px);
+  --grab-size: clamp(58px, 16vmin, 76px);
+  --pad-x: clamp(18px, 4vmin, 32px);
+  --pad-bottom: calc(clamp(14px, 4vmin, 28px) + env(safe-area-inset-bottom, 0px));
+  display: block;
+  position: absolute;
+  inset: 0;
+  /* Read by TouchControls to lift the HUD above the home indicator */
+  padding-block-end: env(safe-area-inset-bottom, 0px);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, visibility 0s linear 0.18s;
+}
+
+html.touch-ui .touch-controls.is-active {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.18s ease, visibility 0s;
+}
+
+.touch-controls [data-touch] {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-controls.is-active [data-touch] {
+  pointer-events: auto;
+}
+
+/* Left-thumb analog stick: the whole lower-left of the stage is its hit zone */
+.touch-stick {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-end: 0;
+  inline-size: 45%;
+  block-size: 78%;
+}
+
+.touch-stick-base {
+  position: absolute;
+  inset-inline-start: var(--pad-x);
+  inset-block-end: var(--pad-bottom);
+  inline-size: var(--stick-size);
+  block-size: var(--stick-size);
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.72);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.12) 100%);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.25), inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+  transition: border-color 0.12s ease;
+  will-change: transform;
+}
+
+.touch-stick.is-engaged .touch-stick-base {
+  border-color: rgba(255, 255, 255, 0.95);
+}
+
+.touch-stick-knob {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  inline-size: 46%;
+  block-size: 46%;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35), inset 0 -3px 0 rgba(148, 163, 184, 0.45);
+  will-change: transform;
+}
+
+/* Right-thumb action buttons */
+.touch-btn {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.25);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.08s ease;
+}
+
+.touch-btn svg {
+  inline-size: 52%;
+  block-size: 52%;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+
+.touch-btn.is-pressed {
+  background: rgba(255, 255, 255, 0.36);
+  transform: scale(0.93);
+}
+
+.touch-btn:focus-visible {
+  outline: none;
+}
+
+.touch-btn-fire {
+  inset-inline-end: var(--pad-x);
+  inset-block-end: var(--pad-bottom);
+  inline-size: var(--fire-size);
+  block-size: var(--fire-size);
+  border-width: 4px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.touch-btn-fire.is-pressed {
+  background: rgba(248, 113, 113, 0.45);
+}
+
+/* Grab sits left of and slightly above Fire, a short thumb roll away (and clear of the minimap) */
+.touch-btn-grab {
+  inset-inline-end: calc(var(--pad-x) + var(--fire-size) + 8px);
+  inset-block-end: calc(var(--pad-bottom) + var(--fire-size) * 0.5);
+  inline-size: var(--grab-size);
+  block-size: var(--grab-size);
+}
+
+/* Portrait prompt: landscape only on touch devices */
+@media (orientation: portrait) {
+  html.touch-ui .rotate-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 24px;
+    padding-block-start: calc(24px + env(safe-area-inset-top, 0px));
+    padding-block-end: calc(24px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg);
+    color: var(--text);
+    text-align: center;
+  }
+}
+
+.rotate-icon {
+  inline-size: 88px;
+  block-size: 88px;
+  margin-block-end: 10px;
+  color: var(--cta);
+}
+
+.rotate-phone {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rotate-hint 2.4s ease-in-out infinite;
+}
+
+@keyframes rotate-hint {
+  0%, 20% { transform: rotate(0deg); }
+  45%, 80% { transform: rotate(90deg); }
+  100% { transform: rotate(0deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-phone {
+    animation: none;
+    transform: rotate(90deg);
+  }
+}
+
+.rotate-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rotate-sub {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
