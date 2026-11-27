@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IRON SIGHT — 3D Split-Screen Tank Wars</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.min.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <h1>IRON SIGHT <span class="brand-sub">3D TANK WARS</span></h1>
+      </div>
+
+      <nav class="toolbar" aria-label="Game controls">
+        <button id="btn-joystick" type="button" class="joy-badge" title="Click to switch which player the primary joystick controls">🎮 Joystick: Press Button</button>
+        <button id="btn-camera" type="button" title="Cycle Behind-Tank Camera View (V)">🎥 Behind Tank (V)</button>
+        <button id="btn-gps" type="button" title="Toggle GPS Heading-Up / North-Up (Tab)">🧭 GPS: Heading-Up (Tab)</button>
+        <button id="btn-mute" type="button" title="Toggle Sound (M)">🔊 Sound (M)</button>
+        <button id="btn-pause" type="button" title="Pause / Resume (P)">⏸ Pause (P)</button>
+        <button id="btn-menu" type="button" title="Open Mission Menu (Esc)">🏠 Menu (Esc)</button>
+        <a class="classic-link" href="classic-2d/" title="Play Archived 2D Battle City">🕹️ 2D Classic</a>
+      </nav>
+    </header>
+
+    <main id="stage-wrap" class="stage-wrap">
+      <canvas id="gl-canvas" aria-label="3D split-screen tank battlefield"></canvas>
+      <canvas id="hud-canvas" aria-hidden="true"></canvas>
+
+      <section id="menu-overlay" class="menu-overlay" aria-label="Mission setup">
+        <div class="menu-panel">
+          <div class="menu-header">
+            <p class="eyebrow">SPLIT-SCREEN 3D ARMORED COMBAT</p>
+            <h2>IRON SIGHT: TANK WARS</h2>
+            <p class="lead">
+              Drive from behind your 3D tank through destructible brick alleys and steel fortresses.
+              Steer with <kbd>WASD</kbd> to auto-lock targets in your front arc and use the GPS to flank:
+              <strong>Front Armor = 3 hits</strong> · <strong>Side = 2 hits</strong> · <strong>Back Core = 1-Hit Kill!</strong>
+            </p>
+          </div>
+
+          <div class="config-grid">
+            <div class="config-group">
+              <span class="config-label">Game Mode</span>
+              <div class="pill-row">
+                <button type="button" class="pill active" data-mode="COOP">🛡️ Co-op Base Defense</button>
+                <button type="button" class="pill" data-mode="VERSUS">⚔️ Versus Deathmatch</button>
+              </div>
+            </div>
+
+            <div class="config-group">
+              <span class="config-label">Split-Screen Players</span>
+              <div class="pill-row">
+                <button type="button" class="pill" data-players="1">1P Solo</button>
+                <button type="button" class="pill active" data-players="2">2P Split</button>
+                <button type="button" class="pill" data-players="3">3P + Sat-Map</button>
+                <button type="button" class="pill" data-players="4">4P Quad</button>
+              </div>
+            </div>
+
+            <div class="config-group" id="versus-bots-row" hidden>
+              <span class="config-label">Versus AI Rival Bots</span>
+              <div class="pill-row">
+                <button type="button" class="pill" data-bots="0">0 Bots</button>
+                <button type="button" class="pill active" data-bots="2">2 Bots</button>
+                <button type="button" class="pill" data-bots="4">4 Bots</button>
+              </div>
+            </div>
+
+            <div class="config-group">
+              <label class="config-label" for="stage-select">Combat Arena</label>
+              <select id="stage-select" class="arena-select"></select>
+            </div>
+
+            <div class="config-group">
+              <span class="config-label">Joystick / Controller Assignment</span>
+              <div class="pill-row">
+                <button type="button" class="pill active" data-joy-offset="0">🎮 Joystick 1 → 1P (+WASD)</button>
+                <button type="button" class="pill" data-joy-offset="1">🎮 Joystick 1 → 2P</button>
+              </div>
+              <small id="menu-joy-status" class="joy-hint">Plug in any USB/Bluetooth joystick or gamepad &amp; press a button to wake it.</small>
+            </div>
+          </div>
+
+          <button id="btn-launch" type="button" class="launch-btn">DEPLOY TO BATTLEFIELD ▶</button>
+
+          <div class="controls-grid" aria-label="Multiplayer keyboard controls">
+            <div class="ctrl-card p1">
+              <strong>1P · Amber (+ Joystick)</strong>
+              <span>Move/Turn: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or <kbd>Stick/D-Pad</kbd></span>
+              <span>Fire: <kbd>Space</kbd>/<kbd>Trigger/A/R2</kbd> · Grab: <kbd>E</kbd>/<kbd>B/L1</kbd></span>
+            </div>
+            <div class="ctrl-card p2">
+              <strong>2P · Emerald</strong>
+              <span>Move/Turn: <kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></span>
+              <span>Fire: <kbd>Enter</kbd>/<kbd>/</kbd> · Wall Grab: <kbd>R-Ctrl</kbd></span>
+            </div>
+            <div class="ctrl-card p3">
+              <strong>3P · Sky Blue</strong>
+              <span>Move/Turn: <kbd>U</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd></span>
+              <span>Fire: <kbd>I</kbd> · Wall Grab: <kbd>O</kbd></span>
+            </div>
+            <div class="ctrl-card p4">
+              <strong>4P · Magenta</strong>
+              <span>Move/Turn: <kbd>Num 8</kbd><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd></span>
+              <span>Fire: <kbd>Num 0</kbd> · Wall Grab: <kbd>Num Enter</kbd></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
