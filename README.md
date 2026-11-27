@@ -3,7 +3,7 @@
 A 3D arcade Main Battle Tank (MBT) arena game playable solo or in **1–4 player couch split-screen**, built from scratch with Three.js and Web Audio.
 
 - **Play 3D Tank Wars Live**: https://weilidai2001.github.io/tank-wars-game/
-- **Play Classic 2D Battle City**: https://weilidai2001.github.io/tank-wars-game/classic-2d/
+- **Classic 2D Battle City** (separate repo): https://weilidai2001.github.io/tank-wars-game-2d/ ([source](https://github.com/weilidai2001/tank-wars-game-2d))
 
 ## Features
 - **3D Behind-the-Tank Perspective**: Drive detailed camouflaged MBTs through 8 destructible 3D arenas (`V` cycles camera views; `[` / `]` adjusts vertical pitch).
