@@ -1,4 +1,5 @@
 import { clamp, applyDeadzone } from '../core/MathUtils.js';
+import { PLAYER_CONFIGS } from '../config/constants.js';
 
 const PREVENT_KEYS = new Set([
   'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab',
@@ -31,6 +32,8 @@ export class InputManager {
 
   _bindEvents() {
     window.addEventListener('keydown', (e) => {
+      const tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (PREVENT_KEYS.has(e.code)) {
         e.preventDefault();
       }
@@ -179,27 +182,35 @@ export class InputManager {
     }
   }
 
-  readPlayerCommand(player) {
+  readPlayerCommand(player, usePrimaryControls = false) {
     let throttle = 0;
     let turn = 0;
     let fire = false;
     let action = false;
 
-    if (this.isAnyDown(player.keys.forward)) throttle += 1;
-    if (this.isAnyDown(player.keys.backward)) throttle -= 1;
-    if (this.isAnyDown(player.keys.left)) turn += 1;
-    if (this.isAnyDown(player.keys.right)) turn -= 1;
-    if (this.isAnyDown(player.keys.fire)) fire = true;
-    if (this.isAnyJustPressed(player.keys.action)) action = true;
+    const keys = usePrimaryControls ? PLAYER_CONFIGS[0].keys : player.keys;
+    if (this.isAnyDown(keys.forward)) throttle += 1;
+    if (this.isAnyDown(keys.backward)) throttle -= 1;
+    if (this.isAnyDown(keys.left)) turn += 1;
+    if (this.isAnyDown(keys.right)) turn -= 1;
+    if (this.isAnyDown(keys.fire)) fire = true;
+    if (this.isAnyJustPressed(keys.action)) action = true;
 
-    // Player 1 Mouse controls
-    if (player.index === 0) {
+    // Convenient Space/E fallback when using single-screen primary controls (e.g. LAN Guest)
+    if (usePrimaryControls) {
+      if (this.keysDown.has('Space')) fire = true;
+      if (this.keysJustPressed.has('KeyE')) action = true;
+    }
+
+    // Primary Player Mouse controls (P1 local, or Guest in full-screen LAN mode)
+    if (usePrimaryControls || player.index === 0) {
       if (this.mouseDown.has(0) || this.mouseJustPressed.has(0)) fire = true;
       if (this.mouseJustPressed.has(2)) action = true;
     }
 
     // Universal Gamepad / Flight-Stick support
-    const gp = this.getGamepadForPlayer(player.index);
+    const padPlayerIdx = usePrimaryControls ? 0 : player.index;
+    const gp = this.getGamepadForPlayer(padPlayerIdx);
     if (gp) {
       const stickX = applyDeadzone(gp.axes[0] || 0, 0.16);
       const stickY = applyDeadzone(gp.axes[1] || 0, 0.16);
@@ -235,11 +246,11 @@ export class InputManager {
         gp.buttons[4]?.pressed ||
         (gp.buttons[6] && (gp.buttons[6].pressed || gp.buttons[6].value > 0.55))
       );
-      const prevLatch = this._actionLatches.get(player.index) || false;
+      const prevLatch = this._actionLatches.get(padPlayerIdx) || false;
       if (grabPressed && !prevLatch) {
         action = true;
       }
-      this._actionLatches.set(player.index, grabPressed);
+      this._actionLatches.set(padPlayerIdx, grabPressed);
     }
 
     return {

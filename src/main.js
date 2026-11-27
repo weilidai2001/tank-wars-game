@@ -19,7 +19,11 @@ const menuController = new MenuController(game);
 window.tankGame = game;
 window.menuController = menuController;
 
-if (new URLSearchParams(window.location.search).get('autostart') === '1') {
+const params = new URLSearchParams(window.location.search);
+const joinCode = params.get('join');
+if (joinCode) {
+  menuController.openLanJoinFromUrl(joinCode);
+} else if (params.get('autostart') === '1') {
   game.startMatch();
   game.state = 'PLAYING';
 }

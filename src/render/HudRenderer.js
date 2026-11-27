@@ -191,10 +191,17 @@ export class HudRenderer {
       this._renderStatusCard(ctx, game, p, vp.x + 12, vp.y + 12, cardW, cardH, compact, 0.72);
     }
 
-    // If AI Wingman is active in 1P+AI mode, show a compact P2 AI badge below P1's card
-    if (game.aiWingman && p.index === 0 && game.players.length > 1 && game.showStatusCards) {
-      const wingman = game.players[1];
-      this._renderStatusCard(ctx, game, wingman, vp.x + 12, vp.y + 92, 194, 58, true, 0.6);
+    // Show compact partner/rival status card when in 1P+AI or full-screen LAN/Online mode
+    if (game.players.length > 1 && game.showStatusCards) {
+      if (game.aiWingman && p.index === 0) {
+        const wingman = game.players[1];
+        this._renderStatusCard(ctx, game, wingman, vp.x + 12, vp.y + 92, 194, 58, true, 0.6);
+      } else if (game.network && game.network.isNetworked()) {
+        const other = game.players[p.index === 0 ? 1 : 0];
+        if (other) {
+          this._renderStatusCard(ctx, game, other, vp.x + 12, vp.y + 92, 194, 58, true, 0.6);
+        }
+      }
     }
 
     this._renderBuffPills(ctx, p, vp);

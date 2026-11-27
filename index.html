@@ -22,6 +22,7 @@
       </div>
 
       <nav class="toolbar" aria-label="Game controls">
+        <button id="btn-net-status" type="button" class="net-badge" hidden title="LAN / Online connection status">🌐 LAN</button>
         <button id="btn-joystick" type="button" class="joy-badge" title="Switch which player the primary joystick controls">🎮 Joystick: Press Button</button>
         <button id="btn-camera" type="button" title="Cycle Camera View: Behind Tank / Turret Sight / High Chase / Full Map (V)">🎥 Behind Tank (V)</button>
         <button id="btn-gps" type="button" title="Toggle GPS Heading-Up / North-Up (Tab)">🧭 GPS: Heading-Up (Tab)</button>
@@ -65,6 +66,7 @@
                 <button type="button" class="pill active" aria-pressed="true" data-players="2">2P Split</button>
                 <button type="button" class="pill" aria-pressed="false" data-players="3">3P + Sat</button>
                 <button type="button" class="pill" aria-pressed="false" data-players="4">4P Quad</button>
+                <button type="button" class="pill" aria-pressed="false" data-players="LAN">🌐 2P LAN / Online</button>
               </div>
             </div>
 
@@ -108,6 +110,24 @@
               </div>
               <small id="menu-joy-status" class="joy-hint">Plug in any USB/Bluetooth joystick or gamepad &amp; press a button to wake it.</small>
             </div>
+          </div>
+
+          <div id="lan-panel" class="lan-panel" hidden>
+            <div class="lan-header">
+              <span class="config-label">🌐 2P LAN / Online Room (Full-Screen · Arrow Keys on Both PCs)</span>
+              <button id="btn-net-disconnect" type="button" class="lan-btn danger" hidden>Disconnect</button>
+            </div>
+            <div class="lan-actions">
+              <button id="btn-net-host" type="button" class="lan-btn primary">📡 Host Room</button>
+              <span class="lan-or">or</span>
+              <input id="net-room-input" type="text" class="lan-input" maxlength="6" placeholder="Room Code (e.g. K7M9)" autocomplete="off" spellcheck="false" aria-label="Room Code">
+              <button id="btn-net-join" type="button" class="lan-btn">🔗 Join Room</button>
+            </div>
+            <div id="net-host-box" class="lan-host-box" hidden>
+              <span>Room Code: <strong id="net-code-display" class="lan-code">----</strong></span>
+              <button id="btn-copy-invite" type="button" class="lan-btn">📋 Copy Invite Link</button>
+            </div>
+            <div id="net-status-text" class="lan-status">Click Host Room on PC 1, then enter the code (or open the invite link) on PC 2.</div>
           </div>
 
           <button id="btn-launch" type="button" class="launch-btn">DEPLOY TO BATTLEFIELD ▶</button>

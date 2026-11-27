@@ -118,6 +118,22 @@ html, body {
   background: rgba(20, 83, 45, 0.35);
 }
 
+.toolbar button.net-badge {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(14, 116, 144, 0.25);
+}
+
+.toolbar button.net-badge.connected {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.55);
+  background: rgba(20, 83, 45, 0.35);
+}
+
+.toolbar button.net-badge[hidden] {
+  display: none;
+}
+
 .joy-hint {
   font-size: 0.7rem;
   color: #94a3b8;
@@ -292,6 +308,141 @@ html, body {
 
 .launch-btn:active {
   transform: translateY(1px);
+}
+
+.launch-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+  transform: none;
+}
+
+/* LAN / Online Multiplayer Lobby Panel */
+.lan-panel {
+  background: rgba(11, 17, 32, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lan-panel[hidden] {
+  display: none;
+}
+
+.lan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.lan-or {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.lan-input {
+  flex: 1 1 150px;
+  min-inline-size: 130px;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.lan-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.lan-btn {
+  background: #162033;
+  color: #f1f5f9;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.lan-btn:hover {
+  background: #1e2d47;
+  border-color: #64748b;
+}
+
+.lan-btn.primary {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--accent);
+  color: #e0f2fe;
+}
+
+.lan-btn.primary:hover {
+  background: rgba(56, 189, 248, 0.32);
+}
+
+.lan-btn.danger {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  padding: 4px 9px;
+  font-size: 0.72rem;
+}
+
+.lan-host-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px dashed rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+.lan-host-box[hidden] {
+  display: none;
+}
+
+.lan-code {
+  font-size: 1.15rem;
+  letter-spacing: 0.2em;
+  color: #facc15;
+  margin-inline-start: 4px;
+}
+
+.lan-status {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.lan-status.connected {
+  color: #4ade80;
+}
+
+.lan-status.error {
+  color: #f87171;
 }
 
 .controls-grid {
