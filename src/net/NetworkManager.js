@@ -24,6 +24,23 @@ const ICE_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
   ],
 };
 
@@ -82,6 +99,7 @@ export class NetworkManager {
     this._peer = null;
     this._conn = null;
     this._pingTimer = null;
+    this._connectTimer = null;
   }
 
   isNetworked() {
@@ -156,6 +174,7 @@ export class NetworkManager {
         });
         return;
       }
+      this._setStatus('connecting', `Player 2 found — establishing P2P link...`);
       this._attachConnection(conn);
     });
 
@@ -222,9 +241,20 @@ export class NetworkManager {
 
   _attachConnection(conn) {
     this._conn = conn;
+    this._clearConnectTimer();
 
-    conn.on('open', () => {
+    this._connectTimer = setTimeout(() => {
+      if (this._conn === conn && !conn.open) {
+        this._setStatus(
+          'error',
+          `Timed out connecting to room ${this.roomCode}. Check the code and ensure Host is still open, then retry.`
+        );
+      }
+    }, 15000);
+
+    const handleOpen = () => {
       if (this._conn !== conn) return;
+      this._clearConnectTimer();
       this.pingMs = null;
       this._startPingLoop();
       this._setStatus(
@@ -236,7 +266,23 @@ export class NetworkManager {
       if (this.callbacks.onPeerConnected) {
         this.callbacks.onPeerConnected();
       }
+    };
+
+    conn.on('open', handleOpen);
+
+    conn.on('iceStateChanged', (iceState) => {
+      if (this._conn !== conn || conn.open) return;
+      if (iceState === 'checking') {
+        this._setStatus('connecting', `Negotiating P2P link (${this.roomCode})...`);
+      } else if (iceState === 'failed') {
+        this._clearConnectTimer();
+        this._setStatus('error', 'WebRTC P2P blocked by firewall/NAT. Try reconnecting or check network settings.');
+      }
     });
+
+    if (conn.open) {
+      handleOpen();
+    }
 
     conn.on('data', (msg) => {
       if (this._conn !== conn || !msg || typeof msg !== 'object') return;
@@ -261,6 +307,7 @@ export class NetworkManager {
 
     conn.on('close', () => {
       if (this._conn !== conn) return;
+      this._clearConnectTimer();
       this._stopPingLoop();
       this._conn = null;
       this.pingMs = null;
@@ -276,8 +323,16 @@ export class NetworkManager {
 
     conn.on('error', (err) => {
       if (this._conn !== conn) return;
+      this._clearConnectTimer();
       this._setStatus('error', `Link error: ${err?.message || 'Connection lost'}`);
     });
+  }
+
+  _clearConnectTimer() {
+    if (this._connectTimer) {
+      clearTimeout(this._connectTimer);
+      this._connectTimer = null;
+    }
   }
 
   _startPingLoop() {
@@ -309,6 +364,7 @@ export class NetworkManager {
   }
 
   disconnect(notify = true) {
+    this._clearConnectTimer();
     this._stopPingLoop();
     if (this._conn) {
       try { this._conn.close(); } catch {}

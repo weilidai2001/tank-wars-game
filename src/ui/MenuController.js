@@ -1,4 +1,4 @@
-import { GAME_MODE } from '../config/constants.js';
+import { GAME_MODE, APP_VERSION } from '../config/constants.js';
 import { ARENA_TEMPLATES } from '../config/arenas.js';
 
 /**
@@ -24,6 +24,9 @@ export class MenuController {
     this.game.onRemoteLobbyUpdated = () => {
       this.syncMenuUI();
     };
+
+    const versionEl = document.getElementById('app-version');
+    if (versionEl) versionEl.textContent = APP_VERSION;
 
     this._bindToolbar();
     this._bindMenuOptions();

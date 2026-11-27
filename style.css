@@ -134,6 +134,19 @@ html, body {
   display: none;
 }
 
+.version-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #1e293b;
+  border-radius: 5px;
+  padding: 4px 7px;
+  user-select: none;
+  white-space: nowrap;
+}
+
 .joy-hint {
   font-size: 0.7rem;
   color: #94a3b8;
