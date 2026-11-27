@@ -206,7 +206,7 @@ export class HudRenderer {
       }
     }
 
-    this._renderBuffPills(ctx, p, vp);
+    this._renderBuffPills(ctx, game, p, vp);
     this._renderPopups(ctx, game, p.camera, vp, compact);
 
     if (!p.alive) {
@@ -571,9 +571,12 @@ export class HudRenderer {
     ctx.fillText(`${lifeText}${tierNames[p.weaponTier] || 'TIER I'}`, x + 10, y + cardH - 7);
   }
 
-  _renderBuffPills(ctx, p, vp) {
+  _renderBuffPills(ctx, game, p, vp) {
     const x = vp.x + 12;
-    const by = vp.y + vp.h - 12;
+    // Lift the pills above the on-screen joystick when it sits in this viewport's bottom-left corner
+    const touch = game.getTouchHudReserve();
+    const underStick = touch && vp.x === 0 && vp.y + vp.h >= game.cssH - 1;
+    const by = vp.y + vp.h - 12 - (underStick ? touch.bottomLeft : 0);
     const pills = [];
     if (p.carriedTile === TILE.BRICK) pills.push({ text: 'CARRY: BRICK [DROP]', color: '#ea580c' });
     else if (p.carriedTile === TILE.CONCRETE) pills.push({ text: 'CARRY: CONCRETE [DROP]', color: '#9ca3af' });
@@ -621,7 +624,8 @@ export class HudRenderer {
       : `VERSUS ARENA · FIRST TO ${VERSUS_TARGET_FRAGS} FRAGS`;
     ctx.font = 'bold 12px ui-monospace, SFMono-Regular, Menlo, monospace';
     const tw = ctx.measureText(topText).width + 24;
-    const pillY = cssH - 34;
+    const touch = game.getTouchHudReserve();
+    const pillY = cssH - 34 - (touch ? touch.bottom : 0);
     ctx.fillStyle = 'rgba(9, 13, 22, 0.88)';
     ctx.fillRect((cssW - tw) * 0.5, pillY, tw, 24);
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
@@ -637,7 +641,8 @@ export class HudRenderer {
     }
 
     if (game.paused && game.state === 'PLAYING') {
-      this.drawModalBox(ctx, cssW, cssH, 'PAUSED', 'Press P to Resume · Esc for Menu', '#fbbf24');
+      const hint = touch ? 'Tap to Resume · 🏠 for Menu' : 'Press P to Resume · Esc for Menu';
+      this.drawModalBox(ctx, cssW, cssH, 'PAUSED', hint, '#fbbf24');
       return;
     }
 
@@ -651,10 +656,14 @@ export class HudRenderer {
     } else if (game.state === 'STAGE_CLEAR') {
       this.drawModalBox(ctx, cssW, cssH, `STAGE ${game.stage} CLEARED!`, 'Advancing to next sector...', '#4ade80');
     } else if (game.state === 'GAME_OVER') {
+      let hint = 'Press Enter or Space to Play Again · Esc for Menu';
+      if (touch) {
+        hint = game.network.isGuest() ? 'Waiting for Host · 🏠 for Menu' : 'Tap to Play Again · 🏠 for Menu';
+      }
       this.drawModalBox(
         ctx, cssW, cssH,
         game.victoryBanner || 'MISSION FAILED',
-        'Press Enter or Space to Play Again · Esc for Menu',
+        hint,
         game.isVictory ? '#4ade80' : '#f87171'
       );
     }

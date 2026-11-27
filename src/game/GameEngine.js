@@ -39,7 +39,7 @@ function lerpAngle(a, b, t) {
  * code, zero physics math, and zero DOM menu boilerplate.
  */
 export class GameEngine {
-  constructor({ glCanvas, hudCanvas, stageWrap, bus, onStateChanged }) {
+  constructor({ glCanvas, hudCanvas, stageWrap, bus, onStateChanged, touchControls = null }) {
     this.glCanvas = glCanvas;
     this.hudCanvas = hudCanvas;
     this.stageWrap = stageWrap;
@@ -73,7 +73,9 @@ export class GameEngine {
       onGamepadStatusChanged: (pads, tag) => {
         if (this.onGamepadStatusChanged) this.onGamepadStatusChanged(pads, tag);
       },
-    });
+    }, touchControls);
+    this.touchControls = touchControls;
+    if (touchControls) this._bindTouchShortcuts(touchControls);
 
     // 2-4P LAN / Online Multiplayer Subsystem (Additive)
     this.networkMode = false;
@@ -301,6 +303,23 @@ export class GameEngine {
     else if (code === 'KeyP') this.togglePause();
     else if (code === 'Escape' && this.state !== 'MENU') this.openMenu();
     else if (this.state === 'GAME_OVER' && !this.network.isGuest() && (code === 'Enter' || code === 'Space')) this.startMatch();
+  }
+
+  // Touch devices have no Enter / P keys: tapping the 3D view resumes a paused match or restarts
+  // after Game Over, and turning the device to portrait pauses local play behind the rotate prompt.
+  _bindTouchShortcuts(touch) {
+    touch.onStageTap = () => {
+      if (this.state === 'GAME_OVER' && !this.network.isGuest()) this.startMatch();
+      else if (this.state === 'PLAYING' && this.paused) this.togglePause();
+    };
+    touch.onPortrait = () => {
+      if (this.state === 'PLAYING' && !this.paused && !this.network.isNetworked()) this.togglePause();
+    };
+  }
+
+  /** Screen space the HUD should keep clear for touch controls, or null without them. */
+  getTouchHudReserve() {
+    return this.touchControls ? this.touchControls.getHudReserve() : null;
   }
 
   _handleGamepadStart() {
@@ -671,6 +690,7 @@ export class GameEngine {
     const dt = Math.min(0.05, Math.max(0.001, rawDt));
 
     this.input.pollGlobalGamepad();
+    this.input.syncTouchControls();
 
     if (this.network.isGuest()) {
       this._updateGuest(dt);
