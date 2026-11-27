@@ -5,6 +5,8 @@ import {
 import { wrapAngle, clamp } from '../core/MathUtils.js';
 
 const ICE_SLIP_DURATION = 0.38; // Matches Tanks3D kIceSlipDuration
+// Reverse speed (m/s) over which steering eases from forward (+1) to car-style reverse (-1).
+const REVERSE_STEER_BLEND = 2.0;
 
 /**
  * Pure simulation MovementSystem (Single Responsibility Principle).
@@ -31,14 +33,6 @@ export class MovementSystem {
     const rapidMul = tank.rapidTimer > 0 ? 1.12 : 1.0;
     const terrainMul = inTrees ? 0.92 : 1.0;
 
-    // Reverse steering inversion (feels like a real vehicle!)
-    const isReversing = input.throttle < 0 || (input.throttle === 0 && tank.speed < -0.4);
-    const steerDir = isReversing ? -input.turn : input.turn;
-    const turnRate = (tank.baseTurnSpeed || TANK_TURN_SPEED) * specTurnMul;
-    const prevYaw = tank.yaw;
-    tank.yaw = wrapAngle(tank.yaw + steerDir * turnRate * dt);
-    const deltaYaw = wrapAngle(tank.yaw - prevYaw);
-
     const maxFwd = (tank.baseMaxSpeed || TANK_MAX_SPEED) * specSpeedMul * rapidMul * terrainMul;
     const maxRev = (tank.baseRevSpeed || TANK_REVERSE_SPEED) * specSpeedMul * terrainMul;
     const accel = onIce ? TANK_ACCEL * 0.52 : TANK_ACCEL;
@@ -46,14 +40,29 @@ export class MovementSystem {
 
     const prevSpeed = tank.speed;
 
+    // Throttle against the direction of travel brakes at least as hard as letting go, so a
+    // shallow analog pull-back stops the tank instead of letting it roll on for seconds.
     if (input.throttle > 0.02) {
-      tank.speed = Math.min(maxFwd, tank.speed + accel * input.throttle * dt);
+      const rate = tank.speed < 0 ? Math.max(decel, accel * input.throttle) : accel * input.throttle;
+      tank.speed = Math.min(maxFwd, tank.speed + rate * dt);
     } else if (input.throttle < -0.02) {
-      tank.speed = Math.max(-maxRev, tank.speed + accel * input.throttle * dt);
+      const rate = tank.speed > 0 ? Math.max(decel, -accel * input.throttle) : -accel * input.throttle;
+      tank.speed = Math.max(-maxRev, tank.speed - rate * dt);
     } else {
       if (tank.speed > 0) tank.speed = Math.max(0, tank.speed - decel * dt);
       else if (tank.speed < 0) tank.speed = Math.min(0, tank.speed + decel * dt);
     }
+
+    // Car-style reverse steering (feels like a real vehicle!), keyed off the way the hull is
+    // actually rolling rather than the throttle: braking out of a forward turn keeps turning the
+    // same way until the tank stops, then the turn eases across a small reverse-speed band
+    // instead of snapping. Pivoting in place is unaffected.
+    const steerSign = clamp(1 + (2 * tank.speed) / REVERSE_STEER_BLEND, -1, 1);
+    const steerDir = input.turn * steerSign;
+    const turnRate = (tank.baseTurnSpeed || TANK_TURN_SPEED) * specTurnMul;
+    const prevYaw = tank.yaw;
+    tank.yaw = wrapAngle(tank.yaw + steerDir * turnRate * dt);
+    const deltaYaw = wrapAngle(tank.yaw - prevYaw);
 
     // Ice momentum carry (Tanks3D-inspired): brief drift along prior vector when on ice
     const fx = -Math.sin(tank.yaw);
