@@ -70,11 +70,11 @@ export class ArenaRenderer {
     this.eagleCrest = null;
     this.eagleLight = null;
 
-    // Ground plane
+    // Ground plane (asphalt tactical grid, or Tanks3D battlefield grass for open-country arenas)
     this.mats.ground.color.setHex(0xffffff);
     const groundMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE),
-      this.mats.ground
+      template.groundStyle === 'grass' ? this.mats.grassGround : this.mats.ground
     );
     groundMesh.rotation.x = -Math.PI / 2;
     groundMesh.position.set(WORLD_SIZE * 0.5, 0, WORLD_SIZE * 0.5);

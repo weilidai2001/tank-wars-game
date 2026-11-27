@@ -2,7 +2,7 @@
 // World, Grid, Camera & Gameplay Constants
 // ============================================================================
 
-export const APP_VERSION = 'v1.3.3';
+export const APP_VERSION = 'v1.4.0';
 
 // 26x26 sub-grid (13x13 macro tiles), each sub-cell is 3.5m x 3.5m -> 91m x 91m 3D arena
 export const SUB_GRID = 26;

@@ -1,6 +1,7 @@
 import { SUB_GRID, TILE, TANK_RADIUS } from '../config/constants.js';
 import { subToWorld } from '../core/MathUtils.js';
 import { getPowerupDef, pickRandomPowerupType, emitPickupEvent } from '../config/powerups.js';
+import { EVENTS } from '../core/EventBus.js';
 
 /**
  * Pure simulation PowerupSystem (Single Responsibility Principle + Strategy Pattern).
@@ -38,6 +39,7 @@ export class PowerupSystem {
         maxLife: 22.0,
       };
       this.crates.push(crate);
+      if (this.bus) this.bus.emit(EVENTS.PICKUP_SPAWNED, { x: crate.x, z: crate.z, type });
       return crate;
     }
     return null;

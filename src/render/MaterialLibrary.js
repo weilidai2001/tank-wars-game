@@ -2,16 +2,16 @@ import * as THREE from '../../vendor/three.module.min.js';
 import {
   SUB_GRID, WALL_MAX_HP, CONCRETE_MAX_HP, STEEL_MAX_HP,
 } from '../config/constants.js';
+import {
+  makePolygonCamoTexture, camoSpecForPalette, camoSpecForHex, applyArmorShader,
+  makeTrackRunTexture, makeTrackSideTexture, makeContactShadowTexture,
+} from './ArmorSurfaces.js';
 
 function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   return c;
-}
-
-function clamp01(v) {
-  return Math.max(0.06, Math.min(0.94, v));
 }
 
 // ============================================================================
@@ -106,6 +106,109 @@ function makeBrickTextures(hp) {
   bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
 
   return { map, bumpMap };
+}
+
+// Tanks3D art assets (assets/textures): photographic masonry for brick walls and
+// battlefield grass for open-country arenas. Loaded async; procedural art shows until ready.
+const TEXTURE_BASE = new URL('../../assets/textures/', import.meta.url);
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = new URL(file, TEXTURE_BASE).href;
+  });
+}
+
+/** Repaint one brick damage stage over the masonry photo (same 5-stage damage language). */
+function paintMasonryStage(colCanvas, bumpCanvas, hp, img, lumBump) {
+  const damage = WALL_MAX_HP - hp;
+  const S = colCanvas.width;
+  const ctx = colCanvas.getContext('2d');
+  const bctx = bumpCanvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(img, 0, 0, S, S);
+  bctx.drawImage(lumBump, 0, 0, S, S);
+  const k = S / 256;
+  ctx.scale(k, k);
+  bctx.scale(k, k);
+
+  if (damage >= 3) {
+    ctx.fillStyle = 'rgba(28, 18, 14, 0.28)';
+    ctx.fillRect(0, 0, 256, 256);
+  }
+  if (damage > 0) {
+    // Blown-out chunks on the same hashed layout as the procedural wall
+    const rows = 8;
+    const cols = 4;
+    const bh = 256 / rows;
+    const bw = 256 / cols;
+    for (let r = 0; r < rows; r++) {
+      const offset = (r % 2) * (bw * 0.5);
+      for (let c = -1; c <= cols; c++) {
+        const hash = ((r * 13 + (c + 2) * 29) * 17) % 23;
+        if (hash >= damage * 3.6) continue;
+        const x = c * bw + offset;
+        const y = r * bh;
+        const g = ctx.createRadialGradient(x + bw / 2, y + bh / 2, 2, x + bw / 2, y + bh / 2, bw * 0.62);
+        g.addColorStop(0, '#120b09');
+        g.addColorStop(0.7, 'rgba(24, 15, 12, 0.92)');
+        g.addColorStop(1, 'rgba(24, 15, 12, 0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x - 6, y - 4, bw + 12, bh + 8);
+        bctx.fillStyle = '#050505';
+        bctx.fillRect(x + 4, y + 4, bw - 8, bh - 8);
+      }
+    }
+    for (let sIdx = 0; sIdx < damage * 2; sIdx++) {
+      const sx = ((sIdx * 83 + 45) % 210) + 22;
+      const sy = ((sIdx * 127 + 35) % 210) + 22;
+      const rad = 22 + damage * 11;
+      const g = ctx.createRadialGradient(sx, sy, 2, sx, sy, rad);
+      g.addColorStop(0, `rgba(14, 10, 8, ${0.3 + damage * 0.1})`);
+      g.addColorStop(1, 'rgba(14, 10, 8, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(sx - rad, sy - rad, rad * 2, rad * 2);
+    }
+    const crackSeeds = [
+      [[30, 10], [78, 68], [62, 128], [108, 195], [95, 248]],
+      [[215, 18], [168, 76], [190, 142], [142, 210]],
+      [[12, 118], [88, 134], [148, 108], [238, 152]],
+      [[122, 8], [136, 92], [104, 168], [158, 246]],
+    ];
+    for (const [targetCtx, col] of [[ctx, '#0f0a09'], [bctx, '#000000']]) {
+      targetCtx.strokeStyle = col;
+      targetCtx.lineWidth = 1.6 + damage * 0.9;
+      for (let kk = 0; kk < damage; kk++) {
+        const pts = crackSeeds[kk % crackSeeds.length];
+        targetCtx.beginPath();
+        targetCtx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) targetCtx.lineTo(pts[i][0], pts[i][1]);
+        targetCtx.stroke();
+      }
+    }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/** Height map from the masonry photo: mortar (light) recessed, brick faces raised. */
+function masonryBumpFromImage(img, size) {
+  const c = makeCanvas(size, size);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, size, size);
+  const data = ctx.getImageData(0, 0, size, size);
+  const d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    // Bricks are darker/redder than the tan mortar: invert and stretch
+    const v = Math.max(0, Math.min(255, (190 - lum) * 2.2 + 110));
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(data, 0, 0);
+  return c;
 }
 
 function makeConcreteTextures(hp) {
@@ -450,137 +553,191 @@ export class MaterialLibrary {
       roughness: 0.92,
     });
 
-    // 9. High-Contrast Steel Caterpillar Tread Texture
-    const treadCanvas = makeCanvas(128, 256);
-    const tctx = treadCanvas.getContext('2d');
-    tctx.fillStyle = '#141619';
-    tctx.fillRect(0, 0, 128, 256);
-    for (let y = 0; y < 256; y += 32) {
-      tctx.fillStyle = '#52606e';
-      tctx.fillRect(4, y + 3, 120, 20);
-      tctx.fillStyle = '#9aa8b8';
-      tctx.fillRect(10, y + 6, 46, 12);
-      tctx.fillRect(72, y + 6, 46, 12);
-      tctx.fillStyle = '#7b8a99';
-      tctx.fillRect(58, y + 2, 12, 22);
-    }
-    this.baseTreadTex = new THREE.CanvasTexture(treadCanvas);
-    this.baseTreadTex.colorSpace = THREE.SRGBColorSpace;
-    this.baseTreadTex.wrapS = this.baseTreadTex.wrapT = THREE.RepeatWrapping;
-    this.baseTreadTex.repeat.set(1, 2.5);
+    // 9. Running gear textures: steel shoes + rubber pads (top run) and link side plates
+    this.trackRunTex = makeTrackRunTexture();
+    this.trackRunTex.repeat.set(1, 3.2);
+    this.trackSideTex = makeTrackSideTexture();
+    this.trackSideTex.repeat.set(3.2, 1);
+    this.trackWrapTex = makeTrackSideTexture();
+    this.trackWrapTex.repeat.set(2, 1);
 
-    // 10. Shared Vehicle PBR Surface Materials (Painted Armor vs Metal vs Rubber vs Optic)
+    // 10. Shared vehicle surfaces — three distinct responses (Tanks3D art pass):
+    //     painted armor (matte), bare metal (half-metallic, smooth highlights), rubber (dead matte).
     this.darkMetalMat = new THREE.MeshStandardMaterial({
-      color: 0x262c34,
-      roughness: 0.52,
-      metalness: 0.62,
+      color: 0x353d3f,
+      roughness: 0.55,
+      metalness: 0.5,
+      envMapIntensity: 0.7,
     });
     this.gunSteelMat = new THREE.MeshStandardMaterial({
-      color: 0x424c58,
-      roughness: 0.34, // Crisp continuous specular highlight along smooth gun barrels!
-      metalness: 0.76,
+      color: 0x8a9692,
+      roughness: 0.34, // smooth tube: one continuous specular streak along the barrel
+      metalness: 0.62,
+      envMapIntensity: 1.1,
+    });
+    this.trackSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x697575,
+      roughness: 0.5,
+      metalness: 0.45,
+      envMapIntensity: 0.8,
     });
     this.rubberMat = new THREE.MeshStandardMaterial({
-      color: 0x16181b,
-      roughness: 0.94, // Completely matte rubber tires (Tanks3D standard)
-      metalness: 0.04,
+      color: 0x1f2729,
+      roughness: 1.0, // rubber never mirrors the sky
+      metalness: 0.0,
+      envMapIntensity: 0.08,
+    });
+    this.boreMat = new THREE.MeshBasicMaterial({ color: 0x0b1214 });
+    this.lensMat = new THREE.MeshStandardMaterial({
+      color: 0xf5e5a6,
+      emissive: 0xf5e5a6,
+      emissiveIntensity: 0.55,
+      roughness: 0.22,
+      metalness: 0.0,
+      envMapIntensity: 1.4,
     });
     this.stowageMat = new THREE.MeshStandardMaterial({
-      color: 0x566041,
-      roughness: 0.88,
-      metalness: 0.05,
+      color: 0x5b6142,
+      roughness: 0.95,
+      metalness: 0.0,
+      envMapIntensity: 0.15,
     });
+
+    this.contactShadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      alphaMap: makeContactShadowTexture(),
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+
+    // Battlefield grass ground for open-country arenas (Tanks3D: albedo #aab39e x grass, roughness 1)
+    const grassCanvas = makeCanvas(512, 512);
+    const grctx = grassCanvas.getContext('2d');
+    grctx.fillStyle = '#56603a';
+    grctx.fillRect(0, 0, 512, 512);
+    this.grassCanvas = grassCanvas;
+    const grassTex = new THREE.CanvasTexture(grassCanvas);
+    grassTex.colorSpace = THREE.SRGBColorSpace;
+    grassTex.wrapS = grassTex.wrapT = THREE.RepeatWrapping;
+    grassTex.repeat.set(SUB_GRID / 2, SUB_GRID / 2);
+    grassTex.anisotropy = 4;
+    this.grassGround = new THREE.MeshStandardMaterial({
+      map: grassTex,
+      color: 0xb4bca6,
+      roughness: 1.0,
+      metalness: 0.0,
+      envMapIntensity: 0.35,
+    });
+
+    this._loadArtTextures();
 
     this.starDecalMat = this._buildStarDecalMat();
     this.fanGrillMat = this._buildFanGrillMat();
+    this._paintCache = new Map();
+  }
+
+  _loadArtTextures() {
+    if (typeof Image === 'undefined') return;
+    loadImage('battlefield_grass.jpg').then((img) => {
+      const ctx = this.grassCanvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, 512, 512);
+      // Keep a faint tactical cell grid so positions stay readable (2 cells per tile)
+      ctx.strokeStyle = 'rgba(24, 30, 18, 0.22)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(0, 0, 512, 512);
+      ctx.strokeStyle = 'rgba(24, 30, 18, 0.1)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(256, 0); ctx.lineTo(256, 512);
+      ctx.moveTo(0, 256); ctx.lineTo(512, 256);
+      ctx.stroke();
+      this.grassGround.map.needsUpdate = true;
+    }).catch(() => {});
+
+    loadImage('urban_masonry.jpg').then((img) => {
+      const size = 512;
+      const lumBump = masonryBumpFromImage(img, size);
+      for (let hp = 1; hp <= WALL_MAX_HP; hp++) {
+        const mat = this.brickStages[hp];
+        const col = makeCanvas(size, size);
+        const bump = makeCanvas(size, size);
+        paintMasonryStage(col, bump, hp, img, lumBump);
+        const map = new THREE.CanvasTexture(col);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.wrapS = map.wrapT = THREE.RepeatWrapping;
+        map.anisotropy = 4;
+        const bumpMap = new THREE.CanvasTexture(bump);
+        bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+        const oldMap = mat.map;
+        const oldBump = mat.bumpMap;
+        mat.map = map;
+        mat.bumpMap = bumpMap;
+        mat.bumpScale = 0.09;
+        mat.needsUpdate = true;
+        oldMap.dispose();
+        oldBump.dispose();
+      }
+    }).catch(() => {});
+  }
+
+  /** Per-rig track materials (cloned textures so each side's links can scroll independently). */
+  createTrackMaterials() {
+    const run = this.trackRunTex.clone();
+    const side = this.trackSideTex.clone();
+    const wrap = this.trackWrapTex.clone();
+    const params = { roughness: 0.78, metalness: 0.32, envMapIntensity: 0.55 };
+    return {
+      runTex: run,
+      sideTex: side,
+      wrapTex: wrap,
+      runMat: new THREE.MeshStandardMaterial({ map: run, ...params }),
+      sideMat: new THREE.MeshStandardMaterial({ map: side, ...params }),
+      wrapMat: new THREE.MeshStandardMaterial({ map: wrap, ...params }),
+    };
+  }
+
+  /** Plain (un-camouflaged) painted armor for wheel hubs, hatches and small castings. */
+  getPaintMaterial(hex, isWhitewash = false) {
+    const key = `${hex}_${isWhitewash}`;
+    if (!this._paintCache.has(key)) {
+      this._paintCache.set(key, new THREE.MeshStandardMaterial({
+        color: hex,
+        roughness: isWhitewash ? 0.8 : 0.66,
+        metalness: 0.0,
+        envMapIntensity: 0.45,
+      }));
+    }
+    return this._paintCache.get(key);
   }
 
   /**
-   * Generate a cached national camouflage PBR armor material.
-   * Keeps painted armor matte (roughness ~0.68, metalness ~0.12) so bare gun metal
-   * and rubber tires read as distinct materials under directional sunlight.
+   * National polygon-camouflage armor material (per-tank clone, triplanar-mapped).
+   * Painted armor stays matte and non-metallic (roughness 0.66, whitewash 0.8) so bare
+   * gun metal and rubber tyres read as different materials under the same sun.
    */
   getCamoArmorMaterial(paletteOrHex, isWhitewash = false) {
     const key = typeof paletteOrHex === 'number'
       ? `hex_${paletteOrHex}_${isWhitewash}`
       : `pal_${paletteOrHex.base}_${paletteOrHex.dark}_${paletteOrHex.light}_${isWhitewash}`;
-    if (this._camoCache.has(key)) {
-      return this._camoCache.get(key).clone();
+    let proto = this._camoCache.get(key);
+    if (!proto) {
+      const spec = typeof paletteOrHex === 'number'
+        ? camoSpecForHex(paletteOrHex)
+        : camoSpecForPalette(paletteOrHex, isWhitewash);
+      proto = new THREE.MeshStandardMaterial({
+        map: makePolygonCamoTexture(spec),
+        roughness: isWhitewash ? 0.8 : 0.66,
+        metalness: 0.0,
+        envMapIntensity: isWhitewash ? 0.32 : 0.45,
+      });
+      this._camoCache.set(key, proto);
     }
-
-    let mainCol;
-    let darkPatch;
-    let lightPatch;
-
-    if (typeof paletteOrHex === 'number') {
-      const baseCol = new THREE.Color(paletteOrHex);
-      const hsl = {};
-      baseCol.getHSL(hsl);
-      mainCol = new THREE.Color().setHSL(hsl.h, Math.min(0.65, hsl.s * 0.78), clamp01(hsl.l * 0.9));
-      darkPatch = new THREE.Color().setHSL((hsl.h + 0.03) % 1, Math.min(0.52, hsl.s * 0.65), clamp01(hsl.l * 0.48));
-      lightPatch = new THREE.Color().setHSL(hsl.h, Math.min(0.48, hsl.s * 0.55), clamp01(hsl.l * 1.15));
-    } else {
-      mainCol = new THREE.Color(paletteOrHex.base);
-      darkPatch = new THREE.Color(paletteOrHex.dark);
-      lightPatch = new THREE.Color(paletteOrHex.light);
-    }
-
-    const c = makeCanvas(256, 256);
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = `#${mainCol.getHexString()}`;
-    ctx.fillRect(0, 0, 256, 256);
-
-    // Organic 3-tone military camo blotches
-    const blobs = [
-      [42, 52, 68, 36, 0.4, darkPatch],
-      [175, 48, 62, 34, -0.35, lightPatch],
-      [118, 132, 78, 40, 0.25, darkPatch],
-      [38, 198, 64, 32, -0.2, lightPatch],
-      [206, 188, 72, 38, 0.5, darkPatch],
-      [125, 228, 55, 28, 0.1, lightPatch],
-    ];
-    for (const [bx, by, rx, ry, rot, col] of blobs) {
-      ctx.save();
-      ctx.translate(bx, by);
-      ctx.rotate(rot);
-      ctx.fillStyle = `#${col.getHexString()}`;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Welded armor seams & subtle edge wear
-    ctx.strokeStyle = 'rgba(15, 20, 25, 0.36)';
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(4, 4, 248, 248);
-    ctx.beginPath();
-    ctx.moveTo(0, 128); ctx.lineTo(256, 128);
-    ctx.moveTo(128, 0); ctx.lineTo(128, 128);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(226, 232, 240, 0.15)';
-    ctx.lineWidth = 1.2;
-    for (let i = 0; i < 18; i++) {
-      const sx = (i * 53 + 17) % 240;
-      const sy = (i * 97 + 29) % 240;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + ((i % 3) - 1) * 14, sy + 9);
-      ctx.stroke();
-    }
-
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      roughness: isWhitewash ? 0.8 : 0.66,
-      metalness: isWhitewash ? 0.04 : 0.14,
-    });
-    this._camoCache.set(key, mat);
-    return mat.clone();
+    // onBeforeCompile is not carried by clone(), so patch every instance.
+    return applyArmorShader(proto.clone());
   }
 
   _buildStarDecalMat() {

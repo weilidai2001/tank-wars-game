@@ -27,6 +27,13 @@ if (touchControls) game.playerCount = 1;
 
 const menuController = new MenuController(game);
 
+// Arcade "menu item selected" blip for mission-setup buttons
+document.addEventListener('click', (e) => {
+  if (e.target instanceof Element && e.target.closest('#menu-overlay button')) {
+    game.sound.playUiSelect();
+  }
+});
+
 window.tankGame = game;
 window.menuController = menuController;
 

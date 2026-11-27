@@ -68,6 +68,8 @@ export const EVENTS = Object.freeze({
   SHELL_CANCELLED: 'shell:cancelled',
   TRACTOR_USED: 'tractor:used',
   PICKUP_COLLECTED: 'pickup:collected',
+  PICKUP_SPAWNED: 'pickup:spawned',
+  PLAYER_RESPAWNED: 'player:respawned',
   EAGLE_DESTROYED: 'eagle:destroyed',
   STAGE_STARTED: 'stage:started',
   STAGE_CLEARED: 'stage:cleared',

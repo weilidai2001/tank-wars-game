@@ -17,9 +17,11 @@ A 3D arcade armored-combat arena game playable solo, with an **AI Wingman**, or 
 - **4 Camera Modes (`V` to Cycle)**:
   - **Behind Tank (Chase)**, **Turret Sight (1P Hood)**, and **High Chase** with smooth exponential damping and anti-wall-clipping raycasts.
   - **Full Map Tactical View**: Fixed-center full-battlefield overview framing the entire 91m × 91m arena (`[` / `]` adjusts elevation, `,` / `.` rotates yaw, minimap auto-hides).
-- **Refined Daylight PBR Lighting & Surfaces**: Warm directional key sunlight (`#fff2dc`) + cool sky hemisphere fill (`#a1bcc2`) + rim backlight, with distinct PBR responses for matte painted camo armor, smooth-shaded brushed gun steel, completely matte rubber road-wheel tires, and procedural bump-mapped walls.
+- **Refined Lighting & Tank Surfaces** (after [Tanks3D](https://github.com/tourzhao/Tanks3D)): warm key sun (`#fff2dc`) from behind the chase camera, cool sky fill, a procedural sky environment map and sharper 4096 shadow maps (2048 on phones) with self-shadowing turrets and soft contact shadows. Three distinct surface responses: matte painted armor with nation-specific **polygon camouflage** (USA woodland, Soviet winter whitewash, German panzer gray) mapped triplanar across hull, turret and gun; half-metallic steel; and dead-matte rubber. Gun tubes are painted at the breech and bare steel toward the muzzle, with one continuous highlight along the barrel and a dark bore. Running gear is a visible track loop over rubber-tired road wheels.
+- **Battle Effects**: bright-nosed **shell tracers** with additive streaks and smoke trails, directional star-shaped muzzle jets with smoke and a light flash, layered explosions (hot core → fireballs → sparks → debris → rolling smoke), **burning wrecks** and HQ fires, smoke from damaged tanks, track dust, sparks on steel and masonry dust. All of it is GPU-instanced and pooled.
+- **Arcade Sound** from the Tanks3D sample set: cannon, impacts, pickups, a looping idle/moving **engine bed**, and the Battle City **stage-start and game-over** jingles (other sounds duck under them), with distance attenuation from your own tank. Uses Ogg, falling back to AAC for browsers without Ogg (see [asset licenses](assets/ASSET_LICENSES.md)).
 - **4 Wall Materials & Progressive Destruction**:
-  - **Brick Walls (5 HP)**: 5-stage 3D crumbling deterioration + procedural mortar bump map.
+  - **Brick Walls (5 HP)**: Tanks3D masonry texture with 5-stage 3D crumbling deterioration, blown-out chunks and a mortar bump map (open-country arenas use the Tanks3D battlefield-grass ground).
   - **Reinforced Concrete (3 HP)**: Precast concrete barriers that spall and expose rusted rebar rods.
   - **Steel Walls (4 HP)**: Cool blue-gray X-ribbed armor plates vulnerable to Tier-IV Steel-Breaker cannons.
   - **Permanent Bastion Steel**: Gold-trimmed indestructible cover.
@@ -61,17 +63,21 @@ src/
 │   └── TouchControls.js        # iPhone/iPad on-screen joystick + Fire/Grab buttons (multi-touch)
 ├── render/
 │   ├── SceneManager.js         # WebGLRenderer, ACESFilmic lighting rig, split-screen & overview passes
-│   ├── MaterialLibrary.js      # Procedural PBR textures + bump maps (armor, steel, rubber, walls)
+│   ├── MaterialLibrary.js      # PBR materials, wall/ground textures (incl. Tanks3D grass & masonry)
+│   ├── ArmorSurfaces.js        # Polygon camo, triplanar painted-armor shader, track textures
 │   ├── TankMeshBuilder.js      # Data-driven 3D hull/turret/tracked & 6-wheeled rig builder
 │   ├── ArenaRenderer.js        # 3D arena meshes, progressive wall ruins, national HQ monuments
-│   ├── EffectsRenderer.js      # EventBus-driven explosions, smoke plumes, sparks, shells & crates
+│   ├── ParticleField.js        # GPU-instanced billboard particles (glow, smoke, streaks, flames)
+│   ├── EffectsRenderer.js      # EventBus-driven tracers, muzzle blasts, explosions, fires & crates
 │   └── HudRenderer.js          # 2D Canvas HUD, status cards, auto-aim brackets, GPS minimap
 ├── audio/
-│   └── SoundEngine.js          # EventBus-driven procedural Web Audio SFX
+│   └── SoundEngine.js          # EventBus-driven sample bank + engine bed (synth fallback)
 ├── game/
 │   └── GameEngine.js           # Facade orchestrating systems & match state machine
 └── ui/
     └── MenuController.js       # DOM mission setup overlay & toolbar controller
+
+assets/                         # Tanks3D sounds & textures + license notices (ASSET_LICENSES.md)
 ```
 
 ## Controls

@@ -1,7 +1,7 @@
 import * as THREE from '../../vendor/three.module.min.js';
 import {
   CELL_SIZE, WORLD_SIZE, TILE, GAME_MODE,
-  TANK_RADIUS, BASE_TANK_HP, BONUS_ENEMY_INDICES,
+  TANK_RADIUS, BASE_TANK_HP, BONUS_ENEMY_INDICES, TANK_MAX_SPEED,
   PLAYER_CONFIGS, COOP_PLAYER_SPAWNS, COOP_ENEMY_SPAWNS,
   VERSUS_SPAWNS, VERSUS_TARGET_FRAGS,
 } from '../config/constants.js';
@@ -62,9 +62,18 @@ export class GameEngine {
     this.arenaRenderer = new ArenaRenderer(this.sceneManager.scene, this.mats);
     this.effects = new EffectsRenderer(this.sceneManager.scene, this.bus);
     this.hud = new HudRenderer(hudCanvas);
+    // Rig -> VFX hooks: directional muzzle blasts on every shot (host & guest alike),
+    // plus continuous track dust and damage smoke per vehicle.
+    this.tankBuilder.onMuzzleBlast = (tank, pos, dir, scale) => this.effects.spawnMuzzleBlast(pos, dir, scale);
+    this.tankBuilder.onVehicleFrame = (tank, rig, dt) => this.effects.emitVehicleEffects(tank, rig, dt);
 
     // Audio & Input Subsystems
     this.sound = new SoundEngine(this.bus);
+    // Distance attenuation is measured from the tanks that own a viewport on this screen
+    this.sound.listenerProvider = () => {
+      if (this.state === 'MENU' || this.cameraSystem.isFullMapMode()) return null;
+      return this.getViewportPlayers().map((p) => ({ x: p.x, z: p.z }));
+    };
     this.input = new InputManager(glCanvas, {
       isPlaying: () => this.state === 'PLAYING' && !this.paused,
       onKeyDown: (code) => this._handleGlobalKey(code),
@@ -261,6 +270,7 @@ export class GameEngine {
         return;
       }
       this.paused = !this.paused;
+      this.sound.playPause();
       this.onStateChanged();
     }
   }
@@ -584,6 +594,7 @@ export class GameEngine {
     if (p.rig) p.rig.root.visible = true;
     this.tankBuilder.syncRig(p, 0);
     if (snapCamera) p.camInitialized = false;
+    else this.bus.emit(EVENTS.PLAYER_RESPAWNED, { tank: p, x: p.x, z: p.z, playerIdx: p.index });
     this.cameraSystem.updatePlayerCamera(p, 0.016);
   }
 
@@ -704,9 +715,25 @@ export class GameEngine {
       }
     }
 
+    this.sound.updateEngine(this._engineAudioState());
     this._render();
     this.input.endFrame();
     requestAnimationFrame((t) => this._loop(t));
+  }
+
+  /** Engine bed state from the human-driven tanks on this screen (Tanks3D: one global bed). */
+  _engineAudioState() {
+    const live = this.state === 'PLAYING' || this.state === 'STAGE_INTRO';
+    if (!live || this.paused) return { active: false, moving: false, speedFrac: 0 };
+    let any = false;
+    let maxFrac = 0;
+    for (const p of this.getViewportPlayers()) {
+      if (!p || !p.alive || p.isAIControlled) continue;
+      any = true;
+      const top = (p.baseMaxSpeed || TANK_MAX_SPEED) * (p.speedMul || 1);
+      maxFrac = Math.max(maxFrac, Math.abs(p.actualSpeed || 0) / Math.max(1, top));
+    }
+    return { active: any, moving: maxFrac > 0.08, speedFrac: maxFrac };
   }
 
   _update(dt) {
@@ -825,7 +852,7 @@ export class GameEngine {
         this.powerups.spawnRandomCrate(this.mode, this.getAllTanks());
       },
     });
-    this.effects.syncShells(this.combat.shells);
+    this.effects.syncShells(this.combat.shells, dt);
 
     // Update Powerup Crates & Sync Crate Meshes
     this.powerups.update(dt, this.players, this._powerupCtx);
@@ -983,6 +1010,8 @@ export class GameEngine {
         isAI: Boolean(tank.isAIControlled),
         tier: tank.weaponTier || 0,
         idx: tank.index,
+        x: Math.round((tank.x || 0) * 10) / 10,
+        z: Math.round((tank.z || 0) * 10) / 10,
       });
     });
     this.bus.on(EVENTS.TANK_HIT, ({ x, y, z, colorHex, hitInfo, absorbedBy, victim }) => {
@@ -1010,7 +1039,9 @@ export class GameEngine {
     this.bus.on(EVENTS.TRACTOR_USED, ({ fromX, fromZ, toX, toZ, colorHex, grab }) => {
       queue(EVENTS.TRACTOR_USED, { fromX, fromZ, toX, toZ, colorHex, grab });
     });
-    this.bus.on(EVENTS.PICKUP_COLLECTED, () => queue(EVENTS.PICKUP_COLLECTED, {}));
+    this.bus.on(EVENTS.PICKUP_COLLECTED, ({ def }) => queue(EVENTS.PICKUP_COLLECTED, { defId: def ? def.id : null }));
+    this.bus.on(EVENTS.PICKUP_SPAWNED, ({ x, z, type }) => queue(EVENTS.PICKUP_SPAWNED, { x, z, type }));
+    this.bus.on(EVENTS.PLAYER_RESPAWNED, ({ x, z, playerIdx }) => queue(EVENTS.PLAYER_RESPAWNED, { x, z, playerIdx }));
     this.bus.on(EVENTS.EAGLE_DESTROYED, ({ x, z }) => queue(EVENTS.EAGLE_DESTROYED, { x, z }));
     this.bus.on(EVENTS.POPUP_SPAWNED, ({ x, y, z, text, color }) => queue(EVENTS.POPUP_SPAWNED, { x, y, z, text, color }));
     this.bus.on(EVENTS.STAGE_CLEARED, ({ stage }) => queue(EVENTS.STAGE_CLEARED, { stage }));
@@ -1503,6 +1534,8 @@ export class GameEngine {
             isAIControlled: data.isAI,
             weaponTier: data.tier,
             index: data.idx,
+            x: data.x,
+            z: data.z,
           },
         });
       } else if (ev === EVENTS.TANK_HIT) {
@@ -1631,7 +1664,7 @@ export class GameEngine {
       }
     }
 
-    this.effects.syncShells(this._guestShells);
+    this.effects.syncShells(this._guestShells, dt);
     this.effects.syncCrates(this.powerups.crates, dt, this.elapsed);
   }
 }
