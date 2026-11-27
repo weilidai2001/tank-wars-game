@@ -1,31 +1,42 @@
 import {
-  TILE, SUB_GRID, CELL_SIZE, ENEMY_TYPE, BASE_WALL_SUBS, GAME_MODE,
+  TILE, SUB_GRID, BASE_WALL_SUBS, GAME_MODE,
   COOP_PLAYER_SPAWNS, COOP_ENEMY_SPAWNS, VERSUS_SPAWNS,
 } from './constants.js';
+import { ENEMY_TYPE } from './vehicles.js';
 
-// 8 Handcrafted 3D Combat Arenas (13x13 macro tiles -> 26x26 sub-cells)
-// Codes:
+// ============================================================================
+// 12 Curated 3D Combat Arenas (13x13 macro tiles -> 26x26 sub-cells)
+// Tile Codes:
 // '.' = open street / asphalt lane
-// 'B' = full brick wall (2x2 sub-blocks)
-// 'b' = south half brick, 't' = north half brick, 'l' = west half brick, 'r' = east half brick
-// 'S' = full steel wall (2x2 sub-blocks)
+// 'B' = full brick wall (5 HP, progressive 3D deterioration)
+// 'b' = south half brick, 't' = north half brick, 'l' = west half, 'r' = east half
+// 'C' = full reinforced concrete barrier (3 HP, rebar-exposed rubble)
+// 'c' = south half concrete
+// 'S' = full steel wall (4 HP, vulnerable only to Tier IV Steel-Breaker shells)
 // 's' = south half steel, 'u' = north half steel
+// 'P' = permanent gold-trimmed bastion steel (100% indestructible)
 // 'W' = water canal
 // 'T' = 3D forest cover
 // 'I' = ice traction zone
-export const ARENA_TEMPLATES = [
+// ============================================================================
+
+export const ARENA_TEMPLATES = Object.freeze([
   {
     id: 1,
     name: 'URBAN BRICKYARD',
     subtitle: 'Classic brick alleys & central steel bunker',
-    skyTop: 0x0b132b,
-    skyHorizon: 0x1c2541,
-    fogColor: 0x162038,
-    groundTint: 0x1f242d,
+    skyTop: 0x1e333c,
+    skyHorizon: 0x2d4b55,
+    fogColor: 0x223942,
+    groundTint: 0x232931,
+    sunColor: 0xfff2dc,
+    sunIntensity: 1.95,
+    ambientColor: 0xa1bcc2,
     enemies: [
-      ...Array(12).fill(ENEMY_TYPE.SCOUT),
+      ...Array(10).fill(ENEMY_TYPE.SCOUT),
       ...Array(4).fill(ENEMY_TYPE.INTERCEPTOR),
       ...Array(2).fill(ENEMY_TYPE.STRIKER),
+      ...Array(2).fill(ENEMY_TYPE.GOLIATH),
     ],
     layout: [
       '.............',
@@ -33,11 +44,11 @@ export const ARENA_TEMPLATES = [
       '.B.B.B.B.B.B.',
       '.B.B.BSB.B.B.',
       '.B.B.B.B.B.B.',
-      '.B.B.b.b.B.B.',
+      '.B.C.b.b.C.B.',
       's.BB.....BB.s',
       '.....B.B.....',
       '.B.B.BBB.B.B.',
-      '.B.B.B.B.B.B.',
+      '.B.C.B.B.C.B.',
       '.B.B.....B.B.',
       '.B.B.....B.B.',
       '.............',
@@ -47,10 +58,13 @@ export const ARENA_TEMPLATES = [
     id: 2,
     name: 'STEEL BASTION',
     subtitle: 'Armored pillboxes & central forest ambush',
-    skyTop: 0x0f172a,
-    skyHorizon: 0x1e3a5f,
-    fogColor: 0x172b46,
-    groundTint: 0x1e262c,
+    skyTop: 0x1a2e3b,
+    skyHorizon: 0x2d4d61,
+    fogColor: 0x1e3645,
+    groundTint: 0x21292f,
+    sunColor: 0xfff4e0,
+    sunIntensity: 1.9,
+    ambientColor: 0x9eb9c4,
     enemies: [
       ...Array(8).fill(ENEMY_TYPE.SCOUT),
       ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -62,8 +76,8 @@ export const ARENA_TEMPLATES = [
       '...S.....S...',
       '.B.S.BTB.S.B.',
       '.B...TTT...B.',
-      '.B.B.BTB.B.B.',
-      '..BB..S..BB..',
+      '.B.C.BTB.C.B.',
+      '..BB..P..BB..',
       'T..S.....S..T',
       'TT.B.BBB.B.TT',
       '.B.B.B.B.B.B.',
@@ -77,10 +91,13 @@ export const ARENA_TEMPLATES = [
     id: 3,
     name: 'CANAL CROSSING',
     subtitle: 'Twin bridgeheads over deep water trenches',
-    skyTop: 0x091e2c,
-    skyHorizon: 0x164e63,
-    fogColor: 0x123849,
-    groundTint: 0x1d262b,
+    skyTop: 0x142c3a,
+    skyHorizon: 0x22546a,
+    fogColor: 0x183c4c,
+    groundTint: 0x1f2a30,
+    sunColor: 0xfff5e4,
+    sunIntensity: 1.95,
+    ambientColor: 0x99c2cf,
     enemies: [
       ...Array(6).fill(ENEMY_TYPE.SCOUT),
       ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -91,7 +108,7 @@ export const ARENA_TEMPLATES = [
       '.............',
       '.BB..BBB..BB.',
       '.B...B.B...B.',
-      '....BB.BB....',
+      '....CC.CC....',
       'WW..S...S..WW',
       'WW.BB...BB.WW',
       '..T..WWW..T..',
@@ -107,10 +124,13 @@ export const ARENA_TEMPLATES = [
     id: 4,
     name: 'GLACIER CITADEL',
     subtitle: 'Low-friction ice lanes & heavy steel core',
-    skyTop: 0x0c192c,
-    skyHorizon: 0x284b63,
-    fogColor: 0x1d3649,
-    groundTint: 0x222c35,
+    skyTop: 0x1a2d42,
+    skyHorizon: 0x385e7a,
+    fogColor: 0x254259,
+    groundTint: 0x26313b,
+    sunColor: 0xf4f8ff,
+    sunIntensity: 2.0,
+    ambientColor: 0xb6d3e6,
     enemies: [
       ...Array(5).fill(ENEMY_TYPE.SCOUT),
       ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -121,7 +141,7 @@ export const ARENA_TEMPLATES = [
       '.............',
       '.B.IIIIIII.B.',
       '.B.I.S.S.I.B.',
-      '...I.BBB.I...',
+      '...I.BCB.I...',
       '.S.I.B.B.I.S.',
       '.B...BBB...B.',
       '.BB.S...S.BB.',
@@ -137,10 +157,13 @@ export const ARENA_TEMPLATES = [
     id: 5,
     name: 'TIMBER AMBUSH',
     subtitle: 'Dense woodland canopy & flanking rivers',
-    skyTop: 0x0a1f1c,
-    skyHorizon: 0x1b4332,
-    fogColor: 0x143125,
-    groundTint: 0x1c251e,
+    skyTop: 0x162e29,
+    skyHorizon: 0x285443,
+    fogColor: 0x1c3d32,
+    groundTint: 0x202b22,
+    sunColor: 0xfff0d4,
+    sunIntensity: 1.9,
+    ambientColor: 0x9ec4b0,
     enemies: [
       ...Array(4).fill(ENEMY_TYPE.SCOUT),
       ...Array(6).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -151,7 +174,7 @@ export const ARENA_TEMPLATES = [
       '.............',
       '.TT.BBBBB.TT.',
       '.TT.B...B.TT.',
-      '.BB.B.S.B.BB.',
+      '.BB.C.S.C.BB.',
       '....TTTTT....',
       '.WW.T.B.T.WW.',
       '.WW.TTTTT.WW.',
@@ -165,12 +188,48 @@ export const ARENA_TEMPLATES = [
   },
   {
     id: 6,
+    name: 'CONCRETE DEPOT',
+    subtitle: 'Reinforced concrete barricades & supply lanes',
+    skyTop: 0x242c34,
+    skyHorizon: 0x424d59,
+    fogColor: 0x2e3842,
+    groundTint: 0x25282c,
+    sunColor: 0xffeccf,
+    sunIntensity: 1.95,
+    ambientColor: 0xb0bac4,
+    enemies: [
+      ...Array(5).fill(ENEMY_TYPE.SCOUT),
+      ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
+      ...Array(6).fill(ENEMY_TYPE.STRIKER),
+      ...Array(3).fill(ENEMY_TYPE.GOLIATH),
+    ],
+    layout: [
+      '.............',
+      '.CC..B.B..CC.',
+      '.C...CCC...C.',
+      '.C.S..B..S.C.',
+      '..BB.C.C.BB..',
+      '.CC..B.B..CC.',
+      '...S.P.P.S...',
+      '.CC..B.B..CC.',
+      '.B.C.BBB.C.B.',
+      '.B...C.C...B.',
+      '.C.B.....B.C.',
+      '...B.....B...',
+      '.............',
+    ],
+  },
+  {
+    id: 7,
     name: 'TWIN FORTRESSES',
     subtitle: 'Dual steel castles & contested center bridge',
-    skyTop: 0x1a1423,
-    skyHorizon: 0x3d2645,
-    fogColor: 0x2b1c33,
-    groundTint: 0x241f29,
+    skyTop: 0x241d30,
+    skyHorizon: 0x4b3357,
+    fogColor: 0x352540,
+    groundTint: 0x28232e,
+    sunColor: 0xffe6cc,
+    sunIntensity: 1.85,
+    ambientColor: 0xb8a6c7,
     enemies: [
       ...Array(4).fill(ENEMY_TYPE.SCOUT),
       ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -182,7 +241,7 @@ export const ARENA_TEMPLATES = [
       '.SSS..B..SSS.',
       '.S.S.BBB.S.S.',
       '.S.B..B..B.S.',
-      '..BB.SSS.BB..',
+      '..CC.SPS.CC..',
       '.....B.B.....',
       'BB.WW.B.WW.BB',
       '...WW.B.WW...',
@@ -194,13 +253,16 @@ export const ARENA_TEMPLATES = [
     ],
   },
   {
-    id: 7,
+    id: 8,
     name: 'PERMAFROST CORE',
     subtitle: 'Frozen moat surrounding central timber bunker',
-    skyTop: 0x0b1628,
-    skyHorizon: 0x1e3f66,
-    fogColor: 0x152c4a,
-    groundTint: 0x1f2833,
+    skyTop: 0x16253b,
+    skyHorizon: 0x2b507a,
+    fogColor: 0x1e3859,
+    groundTint: 0x222c38,
+    sunColor: 0xf2f7ff,
+    sunIntensity: 1.95,
+    ambientColor: 0xaec9e0,
     enemies: [
       ...Array(3).fill(ENEMY_TYPE.SCOUT),
       ...Array(6).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -216,7 +278,7 @@ export const ARENA_TEMPLATES = [
       '...WIIIIIW...',
       '.S..TTTTT..S.',
       '.B.B.TTT.B.B.',
-      '.B.B.BBB.B.B.',
+      '.B.C.BBB.C.B.',
       '...B..S..B...',
       '.B.B.....B.B.',
       '.B.......B...',
@@ -224,13 +286,82 @@ export const ARENA_TEMPLATES = [
     ],
   },
   {
-    id: 8,
-    name: 'OMEGA STRONGHOLD',
-    subtitle: 'Heavy Goliath assault through fortified citadel',
-    skyTop: 0x1f1118,
-    skyHorizon: 0x4a1c24,
-    fogColor: 0x33141b,
-    groundTint: 0x261d20,
+    id: 9,
+    name: 'CANYON BRIDGEHEAD',
+    subtitle: 'Narrow fortified causeways & crossfire alleys',
+    skyTop: 0x2e211b,
+    skyHorizon: 0x5c3c2e,
+    fogColor: 0x422b21,
+    groundTint: 0x2c2420,
+    sunColor: 0xffdfc2,
+    sunIntensity: 2.0,
+    ambientColor: 0xc9b09e,
+    enemies: [
+      ...Array(3).fill(ENEMY_TYPE.SCOUT),
+      ...Array(6).fill(ENEMY_TYPE.INTERCEPTOR),
+      ...Array(6).fill(ENEMY_TYPE.STRIKER),
+      ...Array(5).fill(ENEMY_TYPE.GOLIATH),
+    ],
+    layout: [
+      '.............',
+      '.B.C.BBB.C.B.',
+      '.B.C..S..C.B.',
+      'WW...CCC...WW',
+      'WWW.B...B.WWW',
+      'WW..B.P.B..WW',
+      '..T..B.B..T..',
+      '.BT.CC.CC.TB.',
+      '.B.S.B.B.S.B.',
+      '.B...BBB...B.',
+      '.C.B.....B.C.',
+      '...B.....B...',
+      '.............',
+    ],
+  },
+  {
+    id: 10,
+    name: 'IRON FOUNDRY',
+    subtitle: 'Heavy steel bulkheads & close-quarters killboxes',
+    skyTop: 0x291a1c,
+    skyHorizon: 0x572c2a,
+    fogColor: 0x3d1f20,
+    groundTint: 0x292122,
+    sunColor: 0xffd9b8,
+    sunIntensity: 1.9,
+    ambientColor: 0xc29e9a,
+    enemies: [
+      ...Array(2).fill(ENEMY_TYPE.SCOUT),
+      ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
+      ...Array(7).fill(ENEMY_TYPE.STRIKER),
+      ...Array(6).fill(ENEMY_TYPE.GOLIATH),
+    ],
+    layout: [
+      '.............',
+      '.S.B.CCC.B.S.',
+      '.S.B..S..B.S.',
+      '..CC.B.B.CC..',
+      '.B.S.P.P.S.B.',
+      '.B...CCC...B.',
+      '.CC.S...S.CC.',
+      '...B.BBB.B...',
+      '.S.B.C.C.B.S.',
+      '.B...B.B...B.',
+      '.B.C.....C.B.',
+      '...B.....B...',
+      '.............',
+    ],
+  },
+  {
+    id: 11,
+    name: 'CITADEL CORE',
+    subtitle: 'Concentric brick, concrete & steel defense rings',
+    skyTop: 0x162433,
+    skyHorizon: 0x2a455e,
+    fogColor: 0x1e3245,
+    groundTint: 0x212933,
+    sunColor: 0xfff3de,
+    sunIntensity: 1.95,
+    ambientColor: 0xa2b9cc,
     enemies: [
       ...Array(2).fill(ENEMY_TYPE.SCOUT),
       ...Array(5).fill(ENEMY_TYPE.INTERCEPTOR),
@@ -239,13 +370,46 @@ export const ARENA_TEMPLATES = [
     ],
     layout: [
       '.............',
-      '.B.SS.B.SS.B.',
+      '.BB.CCCCC.BB.',
+      '.B..C...C..B.',
+      '.B.CS.B.SC.B.',
+      '..TC.B.B.CT..',
+      '..T..B.B..T..',
+      '.S.B.P.P.B.S.',
+      '..I..B.B..I..',
+      '.BI.CCCCC.IB.',
+      '.B...B.B...B.',
+      '.B.S.....S.B.',
+      '...B.....B...',
+      '.............',
+    ],
+  },
+  {
+    id: 12,
+    name: 'OMEGA STRONGHOLD',
+    subtitle: 'Heavy Goliath assault through fortified citadel',
+    skyTop: 0x26151c,
+    skyHorizon: 0x54222c,
+    fogColor: 0x3b1820,
+    groundTint: 0x292023,
+    sunColor: 0xffd8bf,
+    sunIntensity: 1.95,
+    ambientColor: 0xc299a2,
+    enemies: [
+      ...Array(2).fill(ENEMY_TYPE.SCOUT),
+      ...Array(4).fill(ENEMY_TYPE.INTERCEPTOR),
+      ...Array(6).fill(ENEMY_TYPE.STRIKER),
+      ...Array(8).fill(ENEMY_TYPE.GOLIATH),
+    ],
+    layout: [
+      '.............',
+      '.B.SS.C.SS.B.',
       '.B.B..B..B.B.',
-      '..BB.SSS.BB..',
+      '..CC.SPS.CC..',
       '.WW.TTTTT.WW.',
       '.WW.T.S.T.WW.',
       '.BB.IIIII.BB.',
-      '...S.BBB.S...',
+      '...S.BCB.S...',
       '.B.B.B.B.B.B.',
       '.B...BBB...B.',
       '.S.B.....B.S.',
@@ -253,7 +417,7 @@ export const ARENA_TEMPLATES = [
       '.............',
     ],
   },
-];
+]);
 
 function setMacroTile(grid, tx, ty, tileType) {
   const c = tx * 2;
@@ -265,28 +429,7 @@ function setMacroTile(grid, tx, ty, tileType) {
   grid[r + 1][c + 1] = tileType;
 }
 
-export function macroToWorld(tx, ty) {
-  return {
-    x: (tx * 2 + 1) * CELL_SIZE,
-    z: (ty * 2 + 1) * CELL_SIZE,
-  };
-}
-
-export function subToWorld(c, r) {
-  return {
-    x: (c + 0.5) * CELL_SIZE,
-    z: (r + 0.5) * CELL_SIZE,
-  };
-}
-
-export function worldToSub(x, z) {
-  return {
-    c: Math.floor(x / CELL_SIZE),
-    r: Math.floor(z / CELL_SIZE),
-  };
-}
-
-export function buildArena(stageNumber, mode = GAME_MODE.COOP) {
+export function buildArenaData(stageNumber, mode = GAME_MODE.COOP) {
   const idx = (stageNumber - 1) % ARENA_TEMPLATES.length;
   const loopCount = Math.floor((stageNumber - 1) / ARENA_TEMPLATES.length);
   const template = ARENA_TEMPLATES[idx];
@@ -319,6 +462,13 @@ export function buildArena(stageNumber, mode = GAME_MODE.COOP) {
           grid[r][c + 1] = TILE.BRICK;
           grid[r + 1][c + 1] = TILE.BRICK;
           break;
+        case 'C':
+          setMacroTile(grid, tx, ty, TILE.CONCRETE);
+          break;
+        case 'c':
+          grid[r + 1][c] = TILE.CONCRETE;
+          grid[r + 1][c + 1] = TILE.CONCRETE;
+          break;
         case 'S':
           setMacroTile(grid, tx, ty, TILE.STEEL);
           break;
@@ -329,6 +479,9 @@ export function buildArena(stageNumber, mode = GAME_MODE.COOP) {
         case 'u':
           grid[r][c] = TILE.STEEL;
           grid[r][c + 1] = TILE.STEEL;
+          break;
+        case 'P':
+          setMacroTile(grid, tx, ty, TILE.PERM_STEEL);
           break;
         case 'W':
           setMacroTile(grid, tx, ty, TILE.WATER);
@@ -346,23 +499,16 @@ export function buildArena(stageNumber, mode = GAME_MODE.COOP) {
   }
 
   if (mode === GAME_MODE.COOP) {
-    // Clear enemy & player spawns
     for (const sp of COOP_ENEMY_SPAWNS) setMacroTile(grid, sp.tx, sp.ty, TILE.EMPTY);
     for (const sp of COOP_PLAYER_SPAWNS) setMacroTile(grid, sp.tx, sp.ty, TILE.EMPTY);
-
-    // Eagle Core Monument at (6, 12)
     setMacroTile(grid, 6, 12, TILE.EAGLE);
 
-    // Solid Steel protection on Stages 1-8, Brick on loop 2+ (honoring classic progression!)
-    const wallType = stageNumber <= 8 ? TILE.STEEL : TILE.BRICK;
+    const wallType = stageNumber <= 6 ? TILE.STEEL : TILE.BRICK;
     for (const sub of BASE_WALL_SUBS) {
       grid[sub.r][sub.c] = wallType;
     }
   } else {
-    // Versus Deathmatch: clear all 8 symmetric arena spawn pads & center crate pad
-    for (const sp of VERSUS_SPAWNS) {
-      setMacroTile(grid, sp.tx, sp.ty, TILE.EMPTY);
-    }
+    for (const sp of VERSUS_SPAWNS) setMacroTile(grid, sp.tx, sp.ty, TILE.EMPTY);
     setMacroTile(grid, 6, 6, TILE.EMPTY);
   }
 
@@ -373,9 +519,5 @@ export function buildArena(stageNumber, mode = GAME_MODE.COOP) {
     return type;
   });
 
-  return {
-    template,
-    grid,
-    enemies,
-  };
+  return { template, grid, enemies };
 }

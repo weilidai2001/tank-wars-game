@@ -22,9 +22,10 @@
       </div>
 
       <nav class="toolbar" aria-label="Game controls">
-        <button id="btn-joystick" type="button" class="joy-badge" title="Click to switch which player the primary joystick controls">🎮 Joystick: Press Button</button>
-        <button id="btn-camera" type="button" title="Cycle Behind-Tank Camera View (V)">🎥 Behind Tank (V)</button>
+        <button id="btn-joystick" type="button" class="joy-badge" title="Switch which player the primary joystick controls">🎮 Joystick: Press Button</button>
+        <button id="btn-camera" type="button" title="Cycle Camera View: Behind Tank / Turret Sight / High Chase / Full Map (V)">🎥 Behind Tank (V)</button>
         <button id="btn-gps" type="button" title="Toggle GPS Heading-Up / North-Up (Tab)">🧭 GPS: Heading-Up (Tab)</button>
+        <button id="btn-hud" type="button" title="Toggle Status Cards (H)">📋 HUD: On (H)</button>
         <button id="btn-mute" type="button" title="Toggle Sound (M)">🔊 Sound (M)</button>
         <button id="btn-pause" type="button" title="Pause / Resume (P)">⏸ Pause (P)</button>
         <button id="btn-menu" type="button" title="Open Mission Menu (Esc)">🏠 Menu (Esc)</button>
@@ -35,15 +36,15 @@
       <canvas id="gl-canvas" aria-label="3D split-screen tank battlefield"></canvas>
       <canvas id="hud-canvas" aria-hidden="true"></canvas>
 
-      <section id="menu-overlay" class="menu-overlay" aria-label="Mission setup">
+      <section id="menu-overlay" class="menu-overlay" role="dialog" aria-modal="true" aria-labelledby="menu-title">
         <div class="menu-panel">
           <div class="menu-header">
-            <p class="eyebrow">SPLIT-SCREEN 3D ARMORED COMBAT</p>
-            <h2>IRON SIGHT: TANK WARS</h2>
+            <p class="eyebrow">SPLIT-SCREEN 3D ARMORED COMBAT · 12 NATIONAL TANKS</p>
+            <h2 id="menu-title">IRON SIGHT: TANK WARS</h2>
             <p class="lead">
-              Drive from behind your 3D tank through destructible brick alleys and steel fortresses.
-              Steer with <kbd>↑←↓→</kbd> / <kbd>WASD</kbd> to auto-lock targets in your front arc and use the GPS to flank:
-              <strong>Front Armor = 3 hits</strong> · <strong>Side = 2 hits</strong> · <strong>Back Core = 1-Hit Kill!</strong>
+              Command American, Soviet, or German tank lines across 12 destructible arenas with brick, reinforced concrete, and steel cover.
+              Steer with <kbd>↑←↓→</kbd> / <kbd>WASD</kbd>, cycle camera views (<kbd>V</kbd> incl. Full Map View), and flank for directional armor hits:
+              <strong>Front = 3×</strong> · <strong>Side = 2×</strong> · <strong>Back Core = 1-Hit Kill!</strong>
             </p>
           </div>
 
@@ -51,40 +52,59 @@
             <div class="config-group">
               <span class="config-label">Game Mode</span>
               <div class="pill-row">
-                <button type="button" class="pill active" data-mode="COOP">🛡️ Co-op Base Defense</button>
-                <button type="button" class="pill" data-mode="VERSUS">⚔️ Versus Deathmatch</button>
+                <button type="button" class="pill active" aria-pressed="true" data-mode="COOP">🛡️ Co-op Base Defense</button>
+                <button type="button" class="pill" aria-pressed="false" data-mode="VERSUS">⚔️ Versus Deathmatch</button>
               </div>
             </div>
 
             <div class="config-group">
-              <span class="config-label">Split-Screen Players</span>
+              <span class="config-label">Crew &amp; Split-Screen</span>
               <div class="pill-row">
-                <button type="button" class="pill" data-players="1">1P Solo</button>
-                <button type="button" class="pill active" data-players="2">2P Split</button>
-                <button type="button" class="pill" data-players="3">3P + Sat-Map</button>
-                <button type="button" class="pill" data-players="4">4P Quad</button>
+                <button type="button" class="pill" aria-pressed="false" data-players="1">1P Solo</button>
+                <button type="button" class="pill" aria-pressed="false" data-players="1AI">🤖 1P + AI Wingman</button>
+                <button type="button" class="pill active" aria-pressed="true" data-players="2">2P Split</button>
+                <button type="button" class="pill" aria-pressed="false" data-players="3">3P + Sat</button>
+                <button type="button" class="pill" aria-pressed="false" data-players="4">4P Quad</button>
+              </div>
+            </div>
+
+            <div class="config-group">
+              <span class="config-label">1P National Tank Line</span>
+              <div class="pill-row">
+                <button type="button" class="pill active" aria-pressed="true" data-p1-nation="USA">★ USA (Sherman→Abrams)</button>
+                <button type="button" class="pill" aria-pressed="false" data-p1-nation="USSR">☭ USSR (T-34→T-90A)</button>
+                <button type="button" class="pill" aria-pressed="false" data-p1-nation="GERMANY">✚ GER (Panther→Leo 2)</button>
+              </div>
+            </div>
+
+            <div class="config-group">
+              <span class="config-label">2P / AI Wingman Nation</span>
+              <div class="pill-row">
+                <button type="button" class="pill" aria-pressed="false" data-p2-nation="USA">★ USA</button>
+                <button type="button" class="pill active" aria-pressed="true" data-p2-nation="USSR">☭ USSR</button>
+                <button type="button" class="pill" aria-pressed="false" data-p2-nation="GERMANY">✚ GERMANY</button>
               </div>
             </div>
 
             <div class="config-group" id="versus-bots-row" hidden>
               <span class="config-label">Versus AI Rival Bots</span>
               <div class="pill-row">
-                <button type="button" class="pill" data-bots="0">0 Bots</button>
-                <button type="button" class="pill active" data-bots="2">2 Bots</button>
-                <button type="button" class="pill" data-bots="4">4 Bots</button>
+                <button type="button" class="pill" aria-pressed="false" data-bots="0">0 Bots</button>
+                <button type="button" class="pill active" aria-pressed="true" data-bots="2">2 Bots</button>
+                <button type="button" class="pill" aria-pressed="false" data-bots="4">4 Bots</button>
               </div>
             </div>
 
             <div class="config-group">
-              <label class="config-label" for="stage-select">Combat Arena</label>
+              <label class="config-label" for="stage-select">Combat Arena (12 Sectors)</label>
               <select id="stage-select" class="arena-select"></select>
             </div>
 
             <div class="config-group">
               <span class="config-label">Joystick / Controller Assignment</span>
               <div class="pill-row">
-                <button type="button" class="pill active" data-joy-offset="0">🎮 Joystick 1 → 1P (+Arrows/Mouse)</button>
-                <button type="button" class="pill" data-joy-offset="1">🎮 Joystick 1 → 2P</button>
+                <button type="button" class="pill active" aria-pressed="true" data-joy-offset="0">🎮 Pad 1 → 1P</button>
+                <button type="button" class="pill" aria-pressed="false" data-joy-offset="1">🎮 Pad 1 → 2P</button>
               </div>
               <small id="menu-joy-status" class="joy-hint">Plug in any USB/Bluetooth joystick or gamepad &amp; press a button to wake it.</small>
             </div>

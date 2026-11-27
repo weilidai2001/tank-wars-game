@@ -1,18 +1,58 @@
-// Synthesized 3D Tactical Arcade Sound Engine (Web Audio API, zero external assets)
-class SoundEngine {
-  constructor() {
+import { EVENTS } from '../core/EventBus.js';
+import { TILE } from '../config/constants.js';
+
+/**
+ * Event-Driven Synthesized Web Audio Engine (SRP + DIP).
+ * Subscribes to domain events on EventBus — zero audio calls inside simulation code.
+ */
+export class SoundEngine {
+  constructor(bus) {
     this.ctx = null;
     this.muted = false;
     this.lastLockTime = 0;
+    if (bus) this.bindBus(bus);
+  }
+
+  bindBus(bus) {
+    bus.on(EVENTS.TANK_FIRED, ({ tank }) => {
+      if (tank.isPlayer && !tank.isAIControlled) {
+        this.playCannon(tank.weaponTier || 0, 0.25);
+      } else {
+        this.playCannon(0, 0.11);
+      }
+    });
+    bus.on(EVENTS.LOCK_ACQUIRED, () => this.playLockOn());
+    bus.on(EVENTS.WALL_DAMAGED, ({ tile }) => {
+      if (tile === TILE.STEEL) this.playArmorHit();
+      else this.playBrickBreak();
+    });
+    bus.on(EVENTS.WALL_BREACHED, () => this.playBrickBreak());
+    bus.on(EVENTS.WALL_RICOCHET, () => this.playSteelRicochet());
+    bus.on(EVENTS.SHELL_CANCELLED, () => this.playShellCancel());
+    bus.on(EVENTS.TANK_HIT, ({ hitInfo, absorbedBy }) => {
+      if (!absorbedBy && hitInfo && hitInfo.zone === 'FRONT') this.playSteelRicochet();
+      else this.playArmorHit();
+    });
+    bus.on(EVENTS.TANK_DESTROYED, () => this.playExplosion(true));
+    bus.on(EVENTS.PICKUP_COLLECTED, () => this.playPowerup());
+    bus.on(EVENTS.TRACTOR_USED, ({ grab }) => this.playTractor(grab));
+    bus.on(EVENTS.STAGE_STARTED, () => this.playStageStart());
+    bus.on(EVENTS.STAGE_CLEARED, () => this.playPowerup());
+    bus.on(EVENTS.EAGLE_DESTROYED, () => {
+      this.playExplosion(true);
+      this.playGameOver();
+    });
+    bus.on(EVENTS.GAME_OVER, ({ isVictory }) => {
+      if (isVictory) this.playStageStart();
+      else this.playGameOver();
+    });
   }
 
   ensure() {
     if (this.muted) return null;
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        this.ctx = new AudioCtx();
-      }
+      if (AudioCtx) this.ctx = new AudioCtx();
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
@@ -30,9 +70,7 @@ class SoundEngine {
     const len = Math.max(1, Math.floor(ctx.sampleRate * duration));
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
     return buf;
   }
 
@@ -41,21 +79,18 @@ class SoundEngine {
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    // Punchy low-end cannon thump
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = tier >= 3 ? 'sawtooth' : 'triangle';
     const startFreq = tier >= 3 ? 210 : 155 + tier * 15;
     osc.frequency.setValueAtTime(startFreq, now);
     osc.frequency.exponentialRampToValueAtTime(36, now + 0.19);
-
     gain.gain.setValueAtTime(volume, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.21);
     osc.connect(gain).connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.22);
 
-    // Crisp muzzle crack
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer(0.12);
     const filter = ctx.createBiquadFilter();
@@ -76,7 +111,6 @@ class SoundEngine {
     if (now - this.lastLockTime < 0.22) return;
     this.lastLockTime = now;
 
-    // Two-pip fighter-radar lock chirp
     [880, 1320].forEach((freq, idx) => {
       const t = now + idx * 0.045;
       const osc = ctx.createOscillator();
@@ -102,7 +136,6 @@ class SoundEngine {
     filter.type = 'lowpass';
     filter.frequency.setValueAtTime(680, now);
     filter.frequency.exponentialRampToValueAtTime(140, now + 0.18);
-
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.22, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
@@ -114,7 +147,6 @@ class SoundEngine {
     const ctx = this.ensure();
     if (!ctx) return;
     const now = ctx.currentTime;
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'square';
@@ -125,6 +157,22 @@ class SoundEngine {
     osc.connect(gain).connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.12);
+  }
+
+  playShellCancel() {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1120, now);
+    osc.frequency.exponentialRampToValueAtTime(340, now + 0.09);
+    gain.gain.setValueAtTime(0.14, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.1);
   }
 
   playArmorHit() {
@@ -155,9 +203,8 @@ class SoundEngine {
     filter.type = 'lowpass';
     filter.frequency.setValueAtTime(big ? 520 : 720, now);
     filter.frequency.exponentialRampToValueAtTime(55, now + dur);
-
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(big ? 0.4 : 0.28, now);
+    gain.gain.setValueAtTime(big ? 0.38 : 0.26, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
     src.connect(filter).connect(gain).connect(ctx.destination);
     src.start(now);
@@ -167,7 +214,7 @@ class SoundEngine {
     sub.type = 'sine';
     sub.frequency.setValueAtTime(big ? 95 : 120, now);
     sub.frequency.exponentialRampToValueAtTime(24, now + dur * 0.85);
-    subGain.gain.setValueAtTime(big ? 0.36 : 0.24, now);
+    subGain.gain.setValueAtTime(big ? 0.34 : 0.22, now);
     subGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.85);
     sub.connect(subGain).connect(ctx.destination);
     sub.start(now);
@@ -178,8 +225,7 @@ class SoundEngine {
     const ctx = this.ensure();
     if (!ctx) return;
     const now = ctx.currentTime;
-    const notes = [523.25, 659.25, 783.99, 1046.5];
-    notes.forEach((freq, i) => {
+    [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
       const t = now + i * 0.055;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -233,8 +279,7 @@ class SoundEngine {
     const ctx = this.ensure();
     if (!ctx) return;
     const now = ctx.currentTime;
-    const notes = [392.0, 369.99, 349.23, 311.13, 261.63];
-    notes.forEach((freq, i) => {
+    [392.0, 369.99, 349.23, 311.13, 261.63].forEach((freq, i) => {
       const t = now + i * 0.16;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -248,5 +293,3 @@ class SoundEngine {
     });
   }
 }
-
-export const sound = new SoundEngine();
